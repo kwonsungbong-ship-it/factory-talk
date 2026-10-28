@@ -74,6 +74,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 <footer>
   <div class="err" id="err"></div>
   <div id="live"></div>
+  <div id="dbg" style="font-size:10px;color:#56687c;word-break:break-all;min-height:12px"></div>
   <div class="pads">
     <button class="pad ko" data-lang="ko"><span class="big">한국어</span><span class="sub">눌러서 말하기</span></button>
     <button class="pad vi" data-lang="vi"><span class="big">Tiếng Việt</span><span class="sub">Nhấn để nói</span></button>
@@ -110,7 +111,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     p.addEventListener('click',e=>{ e.preventDefault(); if(current){ release(); return; } start(p.dataset.lang,p); });
   });
   function release(){
-    if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} setTimeout(finalizeNative,700); } return; }
+    if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} } return; }
     if(rec){ try{rec.stop();}catch(x){} }
   }
 
@@ -151,7 +152,8 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     };
     try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
   }
-  let nativeOn=false, lastPartial='', listenersOn=false, maxT=null;
+  let nativeOn=false, lastPartial='', listenersOn=false, maxT=null, dbg=[];
+  function D(m){ dbg.push(m); if(dbg.length>8) dbg.shift(); const el=document.getElementById('dbg'); if(el) el.textContent=dbg.join(' | '); }
   function finalizeNative(){
     if(!nativeOn) return;
     const lang=current, text=(lastPartial||'').trim();
@@ -162,22 +164,29 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     try{
       const p=await NSR.requestPermissions();
       if(p.speechRecognition!=='granted'){ showErr('마이크 권한이 필요합니다. 폰 설정 → 앱 → Factory Talk → 권한 → 마이크 허용'); return; }
-      const a=await NSR.available(); if(a && a.available===false){ showErr('이 폰에 음성인식 서비스가 없습니다. Google 앱을 설치/활성화해주세요.'); return; }
       if(!listenersOn){
         listenersOn=true;
-        await NSR.addListener('partialResults',d=>{ const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
-        await NSR.addListener('listeningState',d=>{ if(d&&d.status==='stopped') finalizeNative(); });
+        await NSR.addListener('partialResults',d=>{ D('partial:'+JSON.stringify(d).slice(0,60)); const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
+        await NSR.addListener('listeningState',d=>{ D('state:'+(d&&d.status)); });
       }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
     current=lang; nativeOn=true; lastPartial=''; pads.forEach(x=>x.classList.toggle('rec',x===pad));
-    live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중 — 끝나면 버튼 한 번 더';
+    live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
+    // 1차: Google 음성 입력창(popup) — 결과가 start()의 반환값으로 옴
     try{
-      const r=await NSR.start({language:LANG[lang].rec,maxResults:1,partialResults:true,popup:false});
-      // partialResults 모드에서는 start()가 바로 돌아옴 → 여기서 끝내지 않음.
-      // 종료는 listeningState=stopped, 사용자 재터치, 또는 30초 상한으로만.
-      const m=(r&&r.matches&&r.matches[0])||''; if(m){ lastPartial=m; finalizeNative(); return; }
-      clearTimeout(maxT); maxT=setTimeout(()=>{ if(nativeOn) release(); },30000);
-    }catch(e){ const msg=(e&&e.message)||String(e); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+msg; } }
+      D('start popup '+LANG[lang].rec);
+      const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:false,popup:true,prompt:LANG[lang].name});
+      D('result:'+JSON.stringify(r).slice(0,80));
+      const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
+      finalizeNative(); return;
+    }catch(e){ D('popup err:'+((e&&e.message)||e)); }
+    // 2차: 팝업 없이
+    try{
+      const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:false,popup:false});
+      D('result2:'+JSON.stringify(r).slice(0,80));
+      const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
+      finalizeNative();
+    }catch(e){ D('err2:'+((e&&e.message)||e)); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+((e&&e.message)||e); } }
   }
   function stop(){
     if(nativeOn){ nativeOn=false; try{NSR.stop().catch(()=>{});}catch(e){} }
