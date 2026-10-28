@@ -1,0 +1,49 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - name: Prepare web files
+        run: |
+          mkdir -p www
+          cp index.html manifest.json icon-*.png www/
+      - name: Install Capacitor
+        run: npm install
+      - name: Add Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Patch manifest and icons
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <queries><intent><action android:name="android.speech.RecognitionService" /></intent><intent><action android:name="android.intent.action.TTS_SERVICE" /></intent></queries>#' $M
+          grep -q RECORD_AUDIO $M || sed -i 's#<application#<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <application#' $M
+          cat $M
+          for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            for n in ic_launcher ic_launcher_round ic_launcher_foreground; do
+              cp icon-512.png android/app/src/main/res/mipmap-$d/$n.png 2>/dev/null || true
+            done
+          done
+          rm -rf android/app/src/main/res/mipmap-anydpi-v26
+      - name: Build debug APK
+        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - name: Rename
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk FactoryTalk.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: FactoryTalk-apk, path: FactoryTalk.apk }
+      - name: Publish release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          TAG="v1.0.${{ github.run_number }}"
+          gh release create "$TAG" FactoryTalk.apk --title "Factory Talk $TAG" --notes "안드로이드 APK — 다운로드 후 설치 (출처를 알 수 없는 앱 허용 필요)" --latest

@@ -91,8 +91,10 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   const pads=[...document.querySelectorAll('.pad')];
   let autoTTS=true, current=null, rec=null;
 
+  const CAP = (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) ? window.Capacitor.Plugins : null;
+  const NSR = CAP && CAP.SpeechRecognition, NTTS = CAP && CAP.TextToSpeech;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR){ showErr('이 브라우저는 음성인식을 지원하지 않습니다. 폰에서는 Chrome(안드로이드) 또는 Safari(iPhone)로 열어주세요.'); pads.forEach(p=>p.disabled=true); }
+  if(!SR && !NSR){ showErr('이 브라우저는 음성인식을 지원하지 않습니다. 폰에서는 Chrome(안드로이드) 또는 Safari(iPhone)로 열어주세요.'); pads.forEach(p=>p.disabled=true); }
 
   function showErr(m){ err.textContent=m; err.classList.add('show'); }
   function hideErr(){ err.classList.remove('show'); }
@@ -114,9 +116,10 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     catch(e){ showErr('마이크 권한이 필요합니다. 주소창 왼쪽 자물쇠 → 권한 → 마이크 → 허용 후 새로고침해주세요. ('+e.name+')'); return false; }
   }
   async function start(lang,pad){
+    if(NSR) return startNative(lang,pad);
     if(!(await ensureMic())) return;
     if(rec){ try{rec.abort();}catch(e){} }
-    hideErr(); window.speechSynthesis && speechSynthesis.cancel();
+    hideErr(); window.speechSynthesis && speechSynthesis.cancel(); NTTS && NTTS.stop().catch(()=>{});
     current=lang; pads.forEach(x=>x.classList.toggle('rec',x===pad));
     rec=new SR(); rec.lang=LANG[lang].rec; rec.interimResults=true; rec.continuous=false; rec.maxAlternatives=1;
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
@@ -142,7 +145,24 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     };
     try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
   }
+  let nativeOn=false;
+  async function startNative(lang,pad){
+    hideErr();
+    try{
+      const p=await NSR.requestPermissions();
+      if(p.speechRecognition!=='granted'){ showErr('마이크 권한이 필요합니다. 폰 설정 → 앱 → Factory Talk → 권한 → 마이크 허용'); return; }
+      const a=await NSR.available(); if(a && a.available===false){ showErr('이 폰에 음성인식 서비스가 없습니다. Google 앱을 설치/활성화해주세요.'); return; }
+    }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
+    current=lang; nativeOn=true; pads.forEach(x=>x.classList.toggle('rec',x===pad));
+    live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중 (다시 누르면 종료)';
+    try{
+      const r=await NSR.start({language:LANG[lang].rec,maxResults:1,partialResults:false,popup:false});
+      const text=(r && r.matches && r.matches[0])||'';
+      stop(); if(text) handle(lang,text);
+    }catch(e){ stop(); if(!/No match|cancel/i.test(e.message||'')) status.textContent='소리가 안 들렸어요. 다시 눌러주세요'; }
+  }
   function stop(){
+    if(nativeOn){ nativeOn=false; try{NSR.stop();}catch(e){} }
     if(rec){ try{rec.stop();}catch(e){} }
     rec=null; current=null; pads.forEach(x=>x.classList.remove('rec'));
     live.textContent=''; live.classList.remove('on'); status.textContent='버튼을 누르고 말하세요';
@@ -179,6 +199,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 
   const queue=[];
   function speak(text,lang){
+    if(NTTS){ NTTS.speak({text,lang,rate:0.95}).catch(()=>{}); return; }
     if(!window.speechSynthesis) return;
     const u=new SpeechSynthesisUtterance(text); u.lang=lang; u.rate=0.95;
     const v=speechSynthesis.getVoices().find(v=>v.lang.replace('_','-').toLowerCase().startsWith(lang.toLowerCase().slice(0,2)));
