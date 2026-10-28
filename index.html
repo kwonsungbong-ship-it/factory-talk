@@ -83,7 +83,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 <section id="panel" hidden>
   <h2>AI 자연스러운 번역 (Gemini)</h2>
   <p>무료 키: <span class="mono">aistudio.google.com/apikey</span> 에서 발급 → 아래에 붙여넣기. 키는 이 폰에만 저장됩니다.</p>
-  <input id="gkey" type="password" placeholder="AIza... API 키" autocomplete="off">
+  <input id="gkey" type="password" placeholder="AQ.... 또는 AIza... API 키" autocomplete="off">
   <div class="row"><button id="gsave">저장</button><button id="gtest">연결 테스트</button><button id="gdel">삭제</button></div>
   <div id="gmsg"></div>
   <h3>공장 용어 사전 (한국어 = 베트남어 = 중국어, 한 줄에 하나)</h3>
@@ -152,11 +152,12 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim(); gmsg.textContent='테스트 중…'; try{ const m=await pickModel(true); const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+m+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
   async function pickModel(force){
     if(gmodel&&!force) return gmodel;
-    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key='+encodeURIComponent(gkey));
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',{headers:{'x-goog-api-key':gkey}});
     if(!r.ok) throw new Error('키 확인 실패 HTTP '+r.status);
     const j=await r.json(); const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''));
-    const pref=['gemini-2.5-flash','gemini-2.0-flash','gemini-2.5-flash-lite','gemini-2.0-flash-lite'];
-    gmodel=pref.find(p=>names.includes(p))||names.find(n=>/flash/.test(n)&&!/exp|preview|image|tts|live/.test(n))||names[0];
+    const ver=n=>{ const m=n.match(/^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/); return m?parseFloat(m[1])+(m[2]?0:0.001):-1; };
+    const flash=names.filter(n=>ver(n)>=0).sort((a,b)=>ver(b)-ver(a));
+    gmodel=flash[0]||names.find(n=>/flash/.test(n)&&!/exp|preview|image|tts|live|audio/.test(n))||names[0];
     if(!gmodel) throw new Error('사용 가능한 모델 없음');
     try{localStorage.setItem('ft_gmodel',gmodel);}catch(e){}
     return gmodel;
@@ -166,7 +167,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     if(!gkey) throw new Error('API 키가 없어요 (⚙ 설정)');
     const model=await pickModel(false);
     const prompt=`You translate spoken sentences in a footwear (shoe) factory in Vietnam between Korean, Vietnamese and Chinese. Translate naturally as a factory coworker would say it: short, clear, polite workplace tone. Keep numbers, sizes, model names and dates exactly. Use this glossary when relevant (Korean = Vietnamese = Chinese):\n${gloss}\n\nSource language: ${LNAME[src]}\nSource: ${text}\n\nReturn ONLY JSON: {${targets.map(t=>'"'+t+'":"..."').join(',')}}`;
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(gkey)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2,responseMimeType:'application/json'}})});
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':gkey},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2,responseMimeType:'application/json'}})});
     if(!r.ok){ let m='HTTP '+r.status; try{ const j=await r.json(); m+=' '+(j.error&&j.error.message||''); }catch(e){} throw new Error(m); }
     const j=await r.json(); let t=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(p=>p.text||'').join('');
     t=t.replace(/^```json\s*|```$/g,'').trim();
