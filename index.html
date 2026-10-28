@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#121a24">
 <title>Factory Talk</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
 /* 현장용: 어두운 바탕, 큰 글씨, 큰 버튼, 한 손 조작 */
 :root{
@@ -183,6 +188,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   if(window.speechSynthesis) speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
 
   function esc(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
 </script>
 </body>
