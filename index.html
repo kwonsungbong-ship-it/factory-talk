@@ -101,7 +101,15 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     start(l,p);
   });
 
-  function start(lang,pad){
+  let micOK=false;
+  async function ensureMic(){
+    if(micOK) return true;
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return true;
+    try{ const st=await navigator.mediaDevices.getUserMedia({audio:true}); st.getTracks().forEach(t=>t.stop()); micOK=true; return true; }
+    catch(e){ showErr('마이크 권한이 필요합니다. 주소창 왼쪽 자물쇠 → 권한 → 마이크 → 허용 후 새로고침해주세요. ('+e.name+')'); return false; }
+  }
+  async function start(lang,pad){
+    if(!(await ensureMic())) return;
     if(rec){ try{rec.abort();}catch(e){} }
     hideErr(); window.speechSynthesis && speechSynthesis.cancel();
     current=lang; pads.forEach(x=>x.classList.toggle('rec',x===pad));
@@ -118,7 +126,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     };
     rec.onerror=e=>{
       if(e.error==='no-speech'){ status.textContent='소리가 안 들렸어요. 다시 눌러주세요'; }
-      else if(e.error==='not-allowed'){ showErr('마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.'); }
+      else if(e.error==='not-allowed'||e.error==='service-not-allowed'){ showErr('음성인식이 차단되었습니다 ('+e.error+'). 앱 안의 브라우저가 아닌 Chrome 앱을 직접 열어 주소를 입력하고, 폰 설정 → 앱 → Google 앱이 꺼져 있지 않은지 확인해주세요.'); }
       else if(e.error==='network'){ showErr('음성인식 서버에 연결할 수 없습니다. 인터넷을 확인해주세요.'); }
       else { status.textContent='오류: '+e.error; }
     };
