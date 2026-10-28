@@ -1,0 +1,97 @@
+# 신발 부위
+갑피 = mũ giày = 鞋面 = upper = アッパー
+아웃솔(겉창) = đế ngoài = 大底 = outsole = アウトソール
+미드솔(중창) = đế giữa = 中底 = midsole = ミッドソール
+인솔(깔창) = lót giày = 鞋垫 = insole / sockliner = インソール
+안감 = lót trong = 里布 = lining = ライニング
+설포(혀) = lưỡi gà = 鞋舌 = tongue = ベロ(タン)
+토(앞코) = mũi giày = 鞋头 = toe = つま先
+힐(뒤축) = gót giày = 后跟 = heel = かかと
+월형(힐카운터) = pho hậu = 港宝 = heel counter = 月型(ヒールカウンター)
+선심(토퍼프) = pho mũi = 包头 = toe puff = 先芯
+발목(카라) = cổ giày = 领口 = collar = 履き口
+신발끈 = dây giày = 鞋带 = lace = 靴ひも
+아일렛 = lỗ xỏ dây = 鞋眼 = eyelet = ハトメ
+벨크로 = khóa dán = 魔术贴 = velcro = マジックテープ
+로고 = logo = 标志 = logo = ロゴ
+택(행택) = tem treo = 吊牌 = hangtag = 下げ札
+라벨 = tem = 标签 = label = ラベル
+쉥크 = thanh đỡ = 勾心 = shank = シャンク
+# 자재
+가죽 = da = 皮革 = leather = 革
+합성피혁(PU) = da tổng hợp = 合成革 = synthetic leather = 合成皮革
+메쉬 = vải lưới = 网布 = mesh = メッシュ
+니트 갑피 = mũ dệt = 飞织鞋面 = knit upper = ニットアッパー
+고무 = cao su = 橡胶 = rubber = ゴム
+EVA 폼 = xốp EVA = EVA泡棉 = EVA foam = EVAフォーム
+파일론 = phylon = 飞龙 = phylon = ファイロン
+TPU = TPU = TPU = TPU = TPU
+접착제 = keo = 胶水 = adhesive / glue = 接着剤
+프라이머 = chất xử lý = 处理剂 = primer = プライマー
+핫멜트 = keo nhiệt = 热熔胶 = hot melt = ホットメルト
+실 = chỉ = 线 = thread = 糸
+보강재 = vật liệu gia cường = 补强材 = reinforcement = 補強材
+자재 = nguyên liệu = 材料 = material = 材料
+부자재 = phụ liệu = 辅料 = trim / accessories = 副資材
+# 공정
+재단 = chặt = 裁断 = cutting = 裁断
+재단칼 = dao chặt = 刀模 = cutting die = 抜き型
+스카이빙 = lạng mỏng = 削边 = skiving = 漉き
+재봉 = may = 车缝 = stitching = 縫製
+재봉라인 = chuyền may = 针车线 = stitching line = 縫製ライン
+성형(골싸기) = gò = 成型 = lasting = 吊り込み
+성형라인 = chuyền gò = 成型线 = lasting line = 吊り込みライン
+라스트 = phom giày = 鞋楦 = last = ラスト(木型)
+버핑 = mài = 打粗 = buffing = バフ
+접착 = dán keo = 粘合 = bonding = 接着
+압착 = ép = 压底 = pressing = 圧着
+건조오븐 = lò sấy = 烘箱 = oven = 乾燥炉
+가류 = lưu hóa = 硫化 = vulcanizing = 加硫
+열압착 = ép nhiệt = 热压 = heat press = 熱プレス
+사출 = ép phun = 射出 = injection = 射出
+합포 = dán ép = 贴合 = lamination = 貼り合わせ
+실크인쇄 = in lụa = 丝印 = screen print = シルク印刷
+엠보 = ép nổi = 压花 = emboss = エンボス
+고주파 = ép cao tần = 高周波 = high frequency welding = 高周波
+세척 = lau chùi = 清洁 = cleaning = 清掃
+포장 = đóng gói = 包装 = packing = 梱包
+외박스 = thùng carton = 外箱 = carton = 外箱
+몰드(금형) = khuôn = 模具 = mold = 金型
+# 개발·샘플
+샘플 = mẫu = 样品 = sample = サンプル
+확인샘플 = mẫu xác nhận = 确认样 = confirmation sample = 確認サンプル
+개발샘플 = mẫu phát triển = 开发样 = development sample = 開発サンプル
+양산 = sản xuất hàng loạt = 量产 = mass production = 量産
+패턴 = rập = 版型 = pattern = パターン
+스펙 = thông số = 规格 = spec = 仕様
+BOM = BOM = 物料清单 = BOM = 部品表
+소요량 = định mức = 用量 = consumption = 使用量
+배색 = phối màu = 配色 = colorway = 配色
+사이즈 = cỡ = 尺码 = size = サイズ
+착화테스트 = thử mang = 试穿 = wear test = 試し履き
+# 품질·불량
+검사 = kiểm tra = 检查 = inspection = 検査
+불량 = lỗi = 不良 = defect = 不良
+접착불량(벌어짐) = hở keo = 开胶 = open bond = 接着剥がれ
+틀어짐 = lệch = 偏位 = misalignment = ズレ
+주름 = nhăn = 皱褶 = wrinkle = シワ
+스크래치 = trầy = 刮伤 = scratch = キズ
+오염 = dơ / ố = 污渍 = stain = 汚れ
+실밥 = chỉ thừa = 线头 = loose thread = 糸くず
+바늘땀 불량 = mũi may lỗi = 针距不良 = bad stitch = 縫い不良
+좌우 차이 = lệch trái phải = 左右不一 = left/right mismatch = 左右差
+색상 차이 = lệch màu = 色差 = color difference = 色差
+재작업 = làm lại = 返工 = rework = 手直し
+합격 = đạt = 合格 = pass = 合格
+불합격 = không đạt = 不合格 = fail = 不合格
+# 일정·관리
+납기 = ngày giao = 交期 = delivery date = 納期
+지연 = trễ = 延误 = delay = 遅れ
+오더 = đơn hàng = 订单 = order = オーダー
+출고 = xuất hàng = 出货 = shipment = 出荷
+입고 = nhập kho = 入库 = receiving = 入庫
+재고 = tồn kho = 库存 = stock = 在庫
+일정 = lịch = 排程 = schedule = スケジュール
+수량 = số lượng = 数量 = quantity = 数量
+긴급 = gấp = 紧急 = urgent = 至急
+확인 부탁드립니다 = vui lòng kiểm tra = 请确认 = please check = ご確認ください
