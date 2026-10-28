@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121a24">
+<title>Factory Talk</title>
+<style>
+/* 현장용: 어두운 바탕, 큰 글씨, 큰 버튼, 한 손 조작 */
+:root{
+  --bg:#121a24; --panel:#1b2633; --line:#2c3a4b; --fg:#f2f5f8; --muted:#9fb0c2;
+  --ko:#4f8ef7; --vi:#e4b43b; --zh:#ef6a5a; --ok:#3ccf8a; --bad:#ff6b6b;
+  --f-body:"Noto Sans KR","Noto Sans SC","Noto Sans",system-ui,-apple-system,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em}
+header .st{font-size:12px;color:var(--muted)}
+.opts{display:flex;gap:6px}
+.opts button{background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 10px;font-size:13px}
+.opts button[aria-pressed="true"]{border-color:var(--ok);color:var(--ok)}
+#log{flex:1;overflow-y:auto;padding:12px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px;min-height:0}
+.msg{background:var(--panel);border-radius:14px;padding:12px 14px;border-left:6px solid var(--line)}
+.msg.ko{border-left-color:var(--ko)} .msg.vi{border-left-color:var(--vi)} .msg.zh{border-left-color:var(--zh)}
+.msg .src{font-size:20px;line-height:1.35;font-weight:600;margin:0 0 8px}
+.msg .src small{display:block;font-size:11px;color:var(--muted);font-weight:400;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}
+.tr{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.tr .tag{flex:none;font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;margin-top:3px}
+.tag.ko{background:var(--ko);color:#061126} .tag.vi{background:var(--vi);color:#2a1d02} .tag.zh{background:var(--zh);color:#2a0905}
+.tr .txt{flex:1;min-width:0;font-size:24px;line-height:1.35;font-weight:700;word-break:break-word}
+.tr .txt.wait{color:var(--muted);font-weight:400;font-size:16px}
+.tr .play{flex:none;background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:44px;height:44px;font-size:18px}
+.empty{color:var(--muted);text-align:center;margin:auto;font-size:15px;line-height:1.6}
+footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));background:var(--bg)}
+#live{min-height:26px;font-size:16px;color:var(--muted);margin-bottom:8px;text-align:center;word-break:break-word}
+#live.on{color:var(--fg)}
+.pads{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pad{border:none;border-radius:16px;height:92px;color:#fff;font-family:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  -webkit-tap-highlight-color:transparent;user-select:none;position:relative}
+.pad.ko{background:var(--ko)} .pad.vi{background:var(--vi);color:#2a1d02} .pad.zh{background:var(--zh)}
+.pad .big{font-size:22px;font-weight:800;line-height:1}
+.pad .sub{font-size:12px;opacity:.85}
+.pad.rec{animation:pulse 1s infinite;outline:3px solid #fff}
+.pad:disabled{opacity:.35}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}50%{box-shadow:0 0 0 12px rgba(255,255,255,0)}}
+.err{background:#3a1d1d;border:1px solid var(--bad);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;display:none}
+.err.show{display:block}
+@media (prefers-reduced-motion:reduce){.pad.rec{animation:none}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Factory Talk</h1><div class="st" id="status">버튼을 누르고 말하세요</div></div>
+  <div class="opts">
+    <button id="tts" aria-pressed="true" title="번역 음성 자동 재생">🔊 자동</button>
+    <button id="clear" title="기록 지우기">🗑</button>
+  </div>
+</header>
+
+<main id="log"><div class="empty">아래 버튼 중 <b>내가 말하는 언어</b>를 누르고 말하세요.<br>나머지 두 언어로 번역되어 바로 표시됩니다.<br><br>Nhấn ngôn ngữ của bạn và nói.<br>按你的语言，然后说话。</div></main>
+
+<footer>
+  <div class="err" id="err"></div>
+  <div id="live"></div>
+  <div class="pads">
+    <button class="pad ko" data-lang="ko"><span class="big">한국어</span><span class="sub">눌러서 말하기</span></button>
+    <button class="pad vi" data-lang="vi"><span class="big">Tiếng Việt</span><span class="sub">Nhấn để nói</span></button>
+    <button class="pad zh" data-lang="zh"><span class="big">中文</span><span class="sub">按下说话</span></button>
+  </div>
+</footer>
+
+<script>
+(function(){
+  const LANG = {
+    ko:{name:'한국어', rec:'ko-KR', tts:'ko-KR', gt:'ko'},
+    vi:{name:'Tiếng Việt', rec:'vi-VN', tts:'vi-VN', gt:'vi'},
+    zh:{name:'中文', rec:'zh-CN', tts:'zh-CN', gt:'zh-CN'}
+  };
+  const $ = s=>document.querySelector(s);
+  const log=$('#log'), live=$('#live'), status=$('#status'), err=$('#err');
+  const pads=[...document.querySelectorAll('.pad')];
+  let autoTTS=true, current=null, rec=null;
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){ showErr('이 브라우저는 음성인식을 지원하지 않습니다. 폰에서는 Chrome(안드로이드) 또는 Safari(iPhone)로 열어주세요.'); pads.forEach(p=>p.disabled=true); }
+
+  function showErr(m){ err.textContent=m; err.classList.add('show'); }
+  function hideErr(){ err.classList.remove('show'); }
+
+  $('#tts').onclick=e=>{ autoTTS=!autoTTS; e.currentTarget.setAttribute('aria-pressed',autoTTS); };
+  $('#clear').onclick=()=>{ log.innerHTML=''; };
+
+  pads.forEach(p=>p.onclick=()=>{
+    const l=p.dataset.lang;
+    if(current===l){ stop(); return; }
+    start(l,p);
+  });
+
+  function start(lang,pad){
+    if(rec){ try{rec.abort();}catch(e){} }
+    hideErr(); window.speechSynthesis && speechSynthesis.cancel();
+    current=lang; pads.forEach(x=>x.classList.toggle('rec',x===pad));
+    rec=new SR(); rec.lang=LANG[lang].rec; rec.interimResults=true; rec.continuous=false; rec.maxAlternatives=1;
+    live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
+    let finalText='';
+    rec.onresult=e=>{
+      let interim='';
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        const t=e.results[i][0].transcript;
+        if(e.results[i].isFinal) finalText+=t; else interim+=t;
+      }
+      live.textContent=finalText+interim;
+    };
+    rec.onerror=e=>{
+      if(e.error==='no-speech'){ status.textContent='소리가 안 들렸어요. 다시 눌러주세요'; }
+      else if(e.error==='not-allowed'){ showErr('마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.'); }
+      else if(e.error==='network'){ showErr('음성인식 서버에 연결할 수 없습니다. 인터넷을 확인해주세요.'); }
+      else { status.textContent='오류: '+e.error; }
+    };
+    rec.onend=()=>{
+      const text=(finalText||live.textContent).trim().replace(/^…$/,'');
+      stop();
+      if(text) handle(lang,text);
+    };
+    try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
+  }
+  function stop(){
+    if(rec){ try{rec.stop();}catch(e){} }
+    rec=null; current=null; pads.forEach(x=>x.classList.remove('rec'));
+    live.textContent=''; live.classList.remove('on'); status.textContent='버튼을 누르고 말하세요';
+  }
+
+  async function handle(lang,text){
+    if(log.querySelector('.empty')) log.innerHTML='';
+    const targets=Object.keys(LANG).filter(k=>k!==lang);
+    const card=document.createElement('div'); card.className='msg '+lang;
+    card.innerHTML=`<p class="src"><small>${LANG[lang].name}</small>${esc(text)}</p>`+
+      targets.map(t=>`<div class="tr" data-t="${t}"><span class="tag ${t}">${LANG[t].name}</span><div class="txt wait">번역 중…</div><button class="play" title="듣기">▶</button></div>`).join('');
+    log.appendChild(card); log.scrollTop=log.scrollHeight;
+    for(const t of targets){
+      const row=card.querySelector(`.tr[data-t="${t}"]`), out=row.querySelector('.txt'), btn=row.querySelector('.play');
+      try{
+        const tr=await translate(text,LANG[lang].gt,LANG[t].gt);
+        out.textContent=tr; out.classList.remove('wait');
+        btn.onclick=()=>speak(tr,LANG[t].tts);
+        if(autoTTS) speak(tr,LANG[t].tts);
+      }catch(e){
+        out.textContent='번역 실패 (인터넷 확인)'; out.style.color='var(--bad)';
+        btn.disabled=true;
+      }
+      log.scrollTop=log.scrollHeight;
+    }
+  }
+
+  async function translate(q,sl,tl){
+    const u='https://translate.googleapis.com/translate_a/single?client=gtx&sl='+sl+'&tl='+tl+'&dt=t&q='+encodeURIComponent(q);
+    const r=await fetch(u); if(!r.ok) throw new Error(r.status);
+    const j=await r.json();
+    return j[0].map(x=>x[0]).join('');
+  }
+
+  const queue=[];
+  function speak(text,lang){
+    if(!window.speechSynthesis) return;
+    const u=new SpeechSynthesisUtterance(text); u.lang=lang; u.rate=0.95;
+    const v=speechSynthesis.getVoices().find(v=>v.lang.replace('_','-').toLowerCase().startsWith(lang.toLowerCase().slice(0,2)));
+    if(v) u.voice=v;
+    speechSynthesis.speak(u);
+  }
+  if(window.speechSynthesis) speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
+
+  function esc(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+})();
+</script>
+</body>
+</html>
