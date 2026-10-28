@@ -158,6 +158,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
   }
   let nativeOn=false, lastPartial='', listenersOn=false, maxT=null, dbg=[];
+  function J(x){ try{ return JSON.stringify(x===undefined?null:x)||''; }catch(e){ return String(x); } }
   function D(m){ dbg.push(m); if(dbg.length>8) dbg.shift(); const el=document.getElementById('dbg'); if(el) el.textContent=dbg.join(' | '); }
   function finalizeNative(){
     if(!nativeOn) return;
@@ -171,7 +172,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
       if(p.speechRecognition!=='granted'){ showErr('마이크 권한이 필요합니다. 폰 설정 → 앱 → Factory Talk → 권한 → 마이크 허용'); return; }
       if(!listenersOn){
         listenersOn=true;
-        await NSR.addListener('partialResults',d=>{ D('partial:'+JSON.stringify(d).slice(0,60)); const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
+        await NSR.addListener('partialResults',d=>{ D('partial:'+J(d).slice(0,60)); const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
         await NSR.addListener('listeningState',d=>{ D('state:'+(d&&d.status)); if(d&&d.status==='stopped'&&nativeOn&&!usePopup) setTimeout(finalizeNative,300); });
       }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
@@ -181,7 +182,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
       try{
         D('start popup '+LANG[lang].rec);
         const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:false,popup:true,prompt:LANG[lang].name});
-        D('result:'+JSON.stringify(r).slice(0,80));
+        D('result:'+J(r).slice(0,80));
         const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
         finalizeNative(); return;
       }catch(e){ D('popup err:'+((e&&e.message)||e)); stop(); status.textContent='인식 실패: '+((e&&e.message)||e); return; }
@@ -192,7 +193,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
       status.textContent=LANG[lang].name+' 듣는 중 — 끝나면 버튼 한 번 더';
       clearTimeout(maxT); maxT=setTimeout(()=>{ if(nativeOn) release(); },30000);
       const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:true,popup:false});
-      D('start resolved:'+JSON.stringify(r).slice(0,60));
+      D('start resolved:'+J(r).slice(0,60));
       const m=(r&&r.matches&&r.matches[0])||''; if(m){ lastPartial=m; finalizeNative(); }
     }catch(e){ D('err:'+((e&&e.message)||e)); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+((e&&e.message)||e); } }
   }
