@@ -151,9 +151,23 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   $('#gdel').onclick=()=>{ gkey=''; $('#gkey').value=''; try{localStorage.removeItem('ft_gkey');localStorage.removeItem('ft_gmodel');}catch(e){} gmodel=''; gmsg.textContent='삭제됨'; };
   $('#gsaveg').onclick=()=>{ gloss=$('#gloss').value; try{localStorage.setItem('ft_gloss',gloss);}catch(e){} gmsg.textContent='사전 저장됨'; };
   $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim(); gmsg.textContent='테스트 중…'; try{ await pickModel(true); gmsg.textContent='번역 요청 중 ('+gmodel+')…'; const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+gmodel+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
-  function tfetch(url,opt,ms){
-    const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms||15000);
-    return fetch(url,Object.assign({},opt||{},{signal:c.signal})).catch(e=>{ throw new Error(e.name==='AbortError'?'응답 없음 ('+(ms||15000)/1000+'초 초과) — 인터넷 또는 차단 확인':(e.message||e)); }).finally(()=>clearTimeout(t));
+  // 네이티브(Capacitor) 환경에서는 CapacitorHttp 플러그인을 직접 호출 (fetch 패치가 POST에서 멈추는 문제 우회)
+  const NHTTP = CAP && CAP.CapacitorHttp;
+  function withTimeout(p,ms){ return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('응답 없음 ('+ms/1000+'초 초과)')),ms))]); }
+  async function tfetch(url,opt,ms){
+    ms=ms||20000; opt=opt||{};
+    if(NHTTP){
+      D('nhttp '+(opt.method||'GET'));
+      const req={url,method:opt.method||'GET',headers:opt.headers||{},connectTimeout:ms,readTimeout:ms};
+      if(opt.body){ req.data=(typeof opt.body==='string')?JSON.parse(opt.body):opt.body; req.headers['Content-Type']='application/json'; }
+      const res=await withTimeout(NHTTP.request(req),ms+2000);
+      D('nhttp status '+res.status);
+      return { ok:res.status>=200&&res.status<300, status:res.status, json:async()=>(typeof res.data==='string'?JSON.parse(res.data):res.data) };
+    }
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms);
+    try{ return await withTimeout(fetch(url,Object.assign({},opt,{signal:c.signal})),ms+2000); }
+    catch(e){ throw new Error(e.name==='AbortError'?'응답 없음 ('+ms/1000+'초 초과)':(e.message||e)); }
+    finally{ clearTimeout(t); }
   }
   const FALLBACK_MODELS=['gemini-2.5-flash','gemini-2.0-flash','gemini-2.5-flash-lite'];
   async function pickModel(force){
