@@ -151,7 +151,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     };
     try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
   }
-  let nativeOn=false, lastPartial='', nativeDone=null, listenersOn=false;
+  let nativeOn=false, lastPartial='', listenersOn=false, maxT=null;
   function finalizeNative(){
     if(!nativeOn) return;
     const lang=current, text=(lastPartial||'').trim();
@@ -173,9 +173,11 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중 — 끝나면 버튼 한 번 더';
     try{
       const r=await NSR.start({language:LANG[lang].rec,maxResults:1,partialResults:true,popup:false});
-      const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
-      setTimeout(finalizeNative,400);
-    }catch(e){ const msg=e&&e.message||String(e); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+msg; } }
+      // partialResults 모드에서는 start()가 바로 돌아옴 → 여기서 끝내지 않음.
+      // 종료는 listeningState=stopped, 사용자 재터치, 또는 30초 상한으로만.
+      const m=(r&&r.matches&&r.matches[0])||''; if(m){ lastPartial=m; finalizeNative(); return; }
+      clearTimeout(maxT); maxT=setTimeout(()=>{ if(nativeOn) release(); },30000);
+    }catch(e){ const msg=(e&&e.message)||String(e); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+msg; } }
   }
   function stop(){
     if(nativeOn){ nativeOn=false; try{NSR.stop().catch(()=>{});}catch(e){} }
