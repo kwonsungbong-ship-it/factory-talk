@@ -2,6 +2,12 @@
   "appId": "vn.bv.factorytalk",
   "appName": "Factory Talk",
   "webDir": "www",
-  "android": { "allowMixedContent": false },
-  "plugins": {}
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
 }

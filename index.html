@@ -64,6 +64,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 <header>
   <div><h1>Factory Talk</h1><div class="st" id="status">버튼을 누르고 말하세요</div></div>
   <div class="opts">
+    <button id="popup" aria-pressed="true" title="Google 음성 팝업 사용">팝업</button>
     <button id="tts" aria-pressed="false" title="번역 음성 자동 재생 (기본 꺼짐)">🔊 소리</button>
     <button id="clear" title="기록 지우기">🗑</button>
   </div>
@@ -102,6 +103,10 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   function showErr(m){ err.textContent=m; err.classList.add('show'); }
   function hideErr(){ err.classList.remove('show'); }
 
+  let usePopup=true; try{ usePopup=localStorage.getItem('ft_popup')!=='0'; }catch(e){}
+  $('#popup').setAttribute('aria-pressed',usePopup);
+  if(!NSR) $('#popup').hidden=true;
+  $('#popup').onclick=e=>{ usePopup=!usePopup; e.currentTarget.setAttribute('aria-pressed',usePopup); try{localStorage.setItem('ft_popup',usePopup?'1':'0');}catch(x){} };
   $('#tts').onclick=e=>{ autoTTS=!autoTTS; e.currentTarget.setAttribute('aria-pressed',autoTTS); };
   $('#clear').onclick=()=>{ log.innerHTML=''; };
 
@@ -111,7 +116,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     p.addEventListener('click',e=>{ e.preventDefault(); if(current){ release(); return; } start(p.dataset.lang,p); });
   });
   function release(){
-    if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} } return; }
+    if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} setTimeout(finalizeNative,800); } return; }
     if(rec){ try{rec.stop();}catch(x){} }
   }
 
@@ -167,26 +172,29 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
       if(!listenersOn){
         listenersOn=true;
         await NSR.addListener('partialResults',d=>{ D('partial:'+JSON.stringify(d).slice(0,60)); const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
-        await NSR.addListener('listeningState',d=>{ D('state:'+(d&&d.status)); });
+        await NSR.addListener('listeningState',d=>{ D('state:'+(d&&d.status)); if(d&&d.status==='stopped'&&nativeOn&&!usePopup) setTimeout(finalizeNative,300); });
       }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
     current=lang; nativeOn=true; lastPartial=''; pads.forEach(x=>x.classList.toggle('rec',x===pad));
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
-    // 1차: Google 음성 입력창(popup) — 결과가 start()의 반환값으로 옴
+    if(usePopup){
+      try{
+        D('start popup '+LANG[lang].rec);
+        const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:false,popup:true,prompt:LANG[lang].name});
+        D('result:'+JSON.stringify(r).slice(0,80));
+        const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
+        finalizeNative(); return;
+      }catch(e){ D('popup err:'+((e&&e.message)||e)); stop(); status.textContent='인식 실패: '+((e&&e.message)||e); return; }
+    }
+    // 팝업 없음: 중간결과 이벤트로 받고, 멈춤/재터치/30초에 종료
     try{
-      D('start popup '+LANG[lang].rec);
-      const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:false,popup:true,prompt:LANG[lang].name});
-      D('result:'+JSON.stringify(r).slice(0,80));
-      const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
-      finalizeNative(); return;
-    }catch(e){ D('popup err:'+((e&&e.message)||e)); }
-    // 2차: 팝업 없이
-    try{
-      const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:false,popup:false});
-      D('result2:'+JSON.stringify(r).slice(0,80));
-      const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
-      finalizeNative();
-    }catch(e){ D('err2:'+((e&&e.message)||e)); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+((e&&e.message)||e); } }
+      D('start nopopup '+LANG[lang].rec);
+      status.textContent=LANG[lang].name+' 듣는 중 — 끝나면 버튼 한 번 더';
+      clearTimeout(maxT); maxT=setTimeout(()=>{ if(nativeOn) release(); },30000);
+      const r=await NSR.start({language:LANG[lang].rec,maxResults:3,partialResults:true,popup:false});
+      D('start resolved:'+JSON.stringify(r).slice(0,60));
+      const m=(r&&r.matches&&r.matches[0])||''; if(m){ lastPartial=m; finalizeNative(); }
+    }catch(e){ D('err:'+((e&&e.message)||e)); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+((e&&e.message)||e); } }
   }
   function stop(){
     if(nativeOn){ nativeOn=false; try{NSR.stop().catch(()=>{});}catch(e){} }
@@ -210,7 +218,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
         btn.onclick=()=>speak(tr,LANG[t].tts);
         if(autoTTS) speak(tr,LANG[t].tts);
       }catch(e){
-        out.textContent='번역 실패 (인터넷 확인)'; out.style.color='var(--bad)';
+        out.textContent='번역 실패: '+((e&&e.message)||e); out.style.color='var(--bad)'; D('tr err:'+((e&&e.message)||e));
         btn.disabled=true;
       }
       log.scrollTop=log.scrollHeight;
@@ -219,7 +227,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 
   async function translate(q,sl,tl){
     const u='https://translate.googleapis.com/translate_a/single?client=gtx&sl='+sl+'&tl='+tl+'&dt=t&q='+encodeURIComponent(q);
-    const r=await fetch(u); if(!r.ok) throw new Error(r.status);
+    const r=await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status);
     const j=await r.json();
     return j[0].map(x=>x[0]).join('');
   }
