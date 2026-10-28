@@ -39,7 +39,7 @@ header .st{font-size:12px;color:var(--muted)}
 .tag.ko{background:var(--ko);color:#061126} .tag.vi{background:var(--vi);color:#2a1d02} .tag.zh{background:var(--zh);color:#2a0905}
 .tr .txt{flex:1;min-width:0;font-size:24px;line-height:1.35;font-weight:700;word-break:break-word}
 .tr .txt.wait{color:var(--muted);font-weight:400;font-size:16px}
-.tr .play{flex:none;background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:44px;height:44px;font-size:18px}
+.tr .copy,.tr .play{flex:none;background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:44px;height:44px;font-size:18px}
 .empty{color:var(--muted);text-align:center;margin:auto;font-size:15px;line-height:1.6}
 footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));background:var(--bg)}
 #live{min-height:26px;font-size:16px;color:var(--muted);margin-bottom:8px;text-align:center;word-break:break-word}
@@ -64,6 +64,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 #panel .row{display:flex;gap:8px;flex-wrap:wrap} #panel .row button{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 12px;font-size:14px}
 #gmsg{font-size:13px;min-height:18px} .mono{font-family:ui-monospace,monospace;user-select:all}
 .ai{display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--line);align-items:center}
+.ai .copyall{margin-left:auto}
 .ai button{background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 12px;font-size:14px}
 .ai .note{font-size:12px;color:var(--muted)}
 .tr .txt.ai-on{color:#cfe3ff}
@@ -299,11 +300,15 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     const targets=Object.keys(LANG).filter(k=>k!==lang);
     const card=document.createElement('div'); card.className='msg '+lang;
     card.innerHTML=`<p class="src"><small>${LANG[lang].name}</small>${esc(text)}</p>`+
-      targets.map(t=>`<div class="tr" data-t="${t}"><span class="tag ${t}">${LANG[t].name}</span><div class="txt wait">번역 중…</div><button class="play" title="듣기">▶</button></div>`).join('');
+      targets.map(t=>`<div class="tr" data-t="${t}"><span class="tag ${t}">${LANG[t].name}</span><div class="txt wait">번역 중…</div><button class="copy" title="복사">📋</button><button class="play" title="듣기">▶</button></div>`).join('');
     const ai=document.createElement('div'); ai.className='ai';
-    ai.innerHTML='<button type="button">✨ 자연스럽게</button><span class="note">'+(gkey?'AI 번역 (Gemini)':'⚙ 설정에서 키 입력 필요')+'</span>';
+    ai.innerHTML='<button type="button" class="aib">✨ 자연스럽게</button><span class="note">'+(gkey?'AI 번역 (Gemini)':'⚙ 설정에서 키 입력 필요')+'</span><button type="button" class="copyall" title="원문+번역 전체 복사">📋 전체</button>';
     card.appendChild(ai);
-    ai.querySelector('button').onclick=async e=>{
+    ai.querySelector('.copyall').onclick=e=>{
+      const lines=[LANG[lang].name+': '+text].concat(targets.map(t=>LANG[t].name+': '+card.querySelector(`.tr[data-t="${t}"] .txt`).textContent));
+      copyText(lines.join('\n'),e.currentTarget);
+    };
+    ai.querySelector('.aib').onclick=async e=>{
       const b=e.currentTarget, n=ai.querySelector('.note'); if(!gkey){ panel.hidden=false; return; }
       b.disabled=true; n.textContent='AI 번역 중…';
       try{ const o=await gemini(text,lang,targets);
@@ -318,6 +323,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
         const tr=await translate(text,LANG[lang].gt,LANG[t].gt);
         out.textContent=tr; out.classList.remove('wait');
         btn.onclick=()=>speak(tr,LANG[t].tts);
+        row.querySelector('.copy').onclick=e=>copyText(out.textContent,e.currentTarget);
         if(autoTTS) speak(tr,LANG[t].tts);
       }catch(e){
         out.textContent='번역 실패: '+((e&&e.message)||e); out.style.color='var(--bad)'; D('tr err:'+((e&&e.message)||e));
@@ -345,6 +351,13 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   }
   if(window.speechSynthesis) speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices();
 
+  async function copyText(t,btn){
+    let ok=false;
+    try{ if(navigator.clipboard&&navigator.clipboard.writeText){ await navigator.clipboard.writeText(t); ok=true; } }catch(e){}
+    if(!ok){ try{ const ta=document.createElement('textarea'); ta.value=t; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); ok=document.execCommand('copy'); document.body.removeChild(ta); }catch(e){} }
+    if(btn){ const old=btn.textContent; btn.textContent=ok?'✓':'✗'; setTimeout(()=>btn.textContent=old,1200); }
+    status.textContent=ok?'복사됨':'복사 실패';
+  }
   function esc(s){ return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
   if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
