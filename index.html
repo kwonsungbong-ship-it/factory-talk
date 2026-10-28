@@ -14,7 +14,7 @@
 /* 현장용: 어두운 바탕, 큰 글씨, 큰 버튼, 한 손 조작 */
 :root{
   --bg:#121a24; --panel:#1b2633; --line:#2c3a4b; --fg:#f2f5f8; --muted:#9fb0c2;
-  --ko:#4f8ef7; --vi:#e4b43b; --zh:#ef6a5a; --ok:#3ccf8a; --bad:#ff6b6b;
+  --ko:#4f8ef7; --vi:#e4b43b; --zh:#ef6a5a; --en:#3ccf8a; --ja:#b388ff; --ok:#3ccf8a; --bad:#ff6b6b;
   --f-body:"Noto Sans KR","Noto Sans SC","Noto Sans",system-ui,-apple-system,sans-serif;
   color-scheme:dark;
 }
@@ -31,12 +31,12 @@ header .st{font-size:12px;color:var(--muted)}
 .opts button[aria-pressed="true"]{border-color:var(--ok);color:var(--ok)}
 #log{flex:1;overflow-y:auto;padding:12px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px;min-height:0}
 .msg{background:var(--panel);border-radius:14px;padding:12px 14px;border-left:6px solid var(--line)}
-.msg.ko{border-left-color:var(--ko)} .msg.vi{border-left-color:var(--vi)} .msg.zh{border-left-color:var(--zh)}
+.msg.ko{border-left-color:var(--ko)} .msg.vi{border-left-color:var(--vi)} .msg.zh{border-left-color:var(--zh)} .msg.en{border-left-color:var(--en)} .msg.ja{border-left-color:var(--ja)}
 .msg .src{font-size:20px;line-height:1.35;font-weight:600;margin:0 0 8px}
 .msg .src small{display:block;font-size:11px;color:var(--muted);font-weight:400;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}
 .tr{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
 .tr .tag{flex:none;font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;margin-top:3px}
-.tag.ko{background:var(--ko);color:#061126} .tag.vi{background:var(--vi);color:#2a1d02} .tag.zh{background:var(--zh);color:#2a0905}
+.tag.ko{background:var(--ko);color:#061126} .tag.vi{background:var(--vi);color:#2a1d02} .tag.zh{background:var(--zh);color:#2a0905} .tag.en{background:var(--en);color:#04261a} .tag.ja{background:var(--ja);color:#1d0a3a}
 .tr .txt{flex:1;min-width:0;font-size:24px;line-height:1.35;font-weight:700;word-break:break-word}
 .tr .txt.wait{color:var(--muted);font-weight:400;font-size:16px}
 .tr .copy,.tr .play{flex:none;background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:44px;height:44px;font-size:18px}
@@ -45,9 +45,11 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 #live{min-height:26px;font-size:16px;color:var(--muted);margin-bottom:8px;text-align:center;word-break:break-word}
 #live.on{color:var(--fg)}
 .pads{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.pads.n2{grid-template-columns:repeat(2,1fr)} .pads.n4{grid-template-columns:repeat(2,1fr)} .pads.n4 .pad,.pads.n5 .pad{height:76px} .pads.n5{grid-template-columns:repeat(3,1fr)} .pads.n5 .pad:nth-child(4){grid-column:1/3} .pads.n5 .pad:nth-child(5){grid-column:3/4}
+.langs{display:flex;flex-wrap:wrap;gap:8px} .langs label{display:flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px} .langs input{width:18px;height:18px}
 .pad{touch-action:manipulation;-webkit-touch-callout:none;border:none;border-radius:16px;height:92px;color:#fff;font-family:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
   -webkit-tap-highlight-color:transparent;user-select:none;position:relative}
-.pad.ko{background:var(--ko)} .pad.vi{background:var(--vi);color:#2a1d02} .pad.zh{background:var(--zh)}
+.pad.ko{background:var(--ko)} .pad.vi{background:var(--vi);color:#2a1d02} .pad.zh{background:var(--zh)} .pad.en{background:var(--en);color:#04261a} .pad.ja{background:var(--ja);color:#1d0a3a}
 .pad .big{font-size:22px;font-weight:800;line-height:1}
 .pad .sub{font-size:12px;opacity:.85}
 .pad.rec{animation:pulse 1s infinite;outline:3px solid #fff}
@@ -84,13 +86,16 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 </header>
 
 <section id="panel" hidden>
-  <h2>AI 자연스러운 번역 (Gemini)</h2>
+  <h2>사용 언어</h2>
+  <p>켜진 언어끼리 서로 번역됩니다. 한국어는 항상 켜져 있어요. 선택은 이 폰에 저장됩니다.</p>
+  <div class="langs" id="langs"></div>
+  <h2 style="margin-top:8px">AI 자연스러운 번역 (Gemini)</h2>
   <p>무료 키: <span class="mono">aistudio.google.com/apikey</span> 에서 발급 → 아래에 붙여넣기. 키는 이 폰에만 저장됩니다.</p>
   <input id="gkey" type="password" placeholder="AQ.... 또는 AIza... API 키" autocomplete="off">
   <div class="row"><button id="gsave">저장</button><button id="gtest">연결 테스트</button><button id="gdel">삭제</button></div>
   <label style="font-size:13px;color:var(--muted)">모델 <select id="gsel"><option value="">자동 (가벼운 모델 우선)</option></select></label>
   <div id="gmsg"></div>
-  <h3>공장 용어 사전 (한국어 = 베트남어 = 중국어, 한 줄에 하나)</h3>
+  <h3>공장 용어 사전 (한국어 = 베트남어 = 중국어 = 영어 = 일본어 순, 없는 칸은 비워도 됨, 한 줄에 하나)</h3>
   <textarea id="gloss" rows="7" spellcheck="false"></textarea>
   <div class="row"><button id="gsaveg">사전 저장</button><button id="gclose">닫기</button></div>
 </section>
@@ -100,29 +105,53 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   <div class="err" id="err"></div>
   <div id="live"></div>
   <div id="dbg" style="font-size:10px;color:#56687c;word-break:break-all;min-height:12px"></div>
-  <div class="pads">
-    <button class="pad ko" data-lang="ko"><span class="big">한국어</span><span class="sub">눌러서 말하기</span></button>
-    <button class="pad vi" data-lang="vi"><span class="big">Tiếng Việt</span><span class="sub">Nhấn để nói</span></button>
-    <button class="pad zh" data-lang="zh"><span class="big">中文</span><span class="sub">点击说话</span></button>
-  </div>
+  <div class="pads" id="pads"></div>
 </footer>
 
 <script>
 (function(){
-  const LANG = {
-    ko:{name:'한국어', rec:'ko-KR', tts:'ko-KR', gt:'ko'},
-    vi:{name:'Tiếng Việt', rec:'vi-VN', tts:'vi-VN', gt:'vi'},
-    zh:{name:'中文', rec:'zh-CN', tts:'zh-CN', gt:'zh-CN'}
+  const ALL_LANG = {
+    ko:{name:'한국어', sub:'눌러서 말하기', rec:'ko-KR', tts:'ko-KR', gt:'ko', en:'Korean'},
+    vi:{name:'Tiếng Việt', sub:'Nhấn để nói', rec:'vi-VN', tts:'vi-VN', gt:'vi', en:'Vietnamese'},
+    zh:{name:'中文', sub:'点击说话', rec:'zh-CN', tts:'zh-CN', gt:'zh-CN', en:'Simplified Chinese'},
+    en:{name:'English', sub:'Tap to speak', rec:'en-US', tts:'en-US', gt:'en', en:'English'},
+    ja:{name:'日本語', sub:'タップして話す', rec:'ja-JP', tts:'ja-JP', gt:'ja', en:'Japanese'}
   };
+  const LANG = ALL_LANG;
   const $ = s=>document.querySelector(s);
   const log=$('#log'), live=$('#live'), status=$('#status'), err=$('#err');
-  const pads=[...document.querySelectorAll('.pad')];
+  // 선택 언어 (한국어 고정), 폰에 저장
+  let active=['ko','vi','zh'];
+  try{ const a=JSON.parse(localStorage.getItem('ft_langs')||'null'); if(Array.isArray(a)&&a.length){ active=a.filter(k=>ALL_LANG[k]); } }catch(e){}
+  if(!active.includes('ko')) active.unshift('ko');
+  let pads=[];
+  function renderPads(){
+    const box=$('#pads'); box.innerHTML='';
+    const order=Object.keys(ALL_LANG).filter(k=>active.includes(k));
+    box.className='pads n'+order.length;
+    order.forEach(k=>{ const b=document.createElement('button'); b.className='pad '+k; b.dataset.lang=k; b.innerHTML=`<span class="big">${ALL_LANG[k].name}</span><span class="sub">${ALL_LANG[k].sub}</span>`; box.appendChild(b); });
+    pads=[...box.querySelectorAll('.pad')];
+    pads.forEach(p=>{
+      p.addEventListener('contextmenu',e=>e.preventDefault());
+      p.addEventListener('click',e=>{ e.preventDefault(); if(current){ release(); return; } start(p.dataset.lang,p); });
+    });
+    if(!SR && !NSR) pads.forEach(p=>p.disabled=true);
+  }
+  function renderLangChooser(){
+    const box=$('#langs'); box.innerHTML='';
+    Object.keys(ALL_LANG).forEach(k=>{
+      const l=document.createElement('label'); const c=document.createElement('input'); c.type='checkbox'; c.checked=active.includes(k); c.disabled=(k==='ko');
+      c.onchange=()=>{ if(c.checked){ if(!active.includes(k)) active.push(k); } else { active=active.filter(x=>x!==k); } if(active.length<2){ c.checked=true; active.push(k); status.textContent='언어는 2개 이상 필요해요'; } try{localStorage.setItem('ft_langs',JSON.stringify(active));}catch(e){} renderPads(); };
+      l.appendChild(c); l.appendChild(document.createTextNode(ALL_LANG[k].name+(k==='ko'?' (고정)':''))); box.appendChild(l);
+    });
+  }
   let autoTTS=false, current=null, rec=null;
 
   const CAP = (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) ? window.Capacitor.Plugins : null;
   const NSR = CAP && CAP.SpeechRecognition, NTTS = CAP && CAP.TextToSpeech;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if(!SR && !NSR){ showErr('이 브라우저는 음성인식을 지원하지 않습니다. 폰에서는 Chrome(안드로이드) 또는 Safari(iPhone)로 열어주세요.'); pads.forEach(p=>p.disabled=true); }
+  if(!SR && !NSR){ showErr('이 브라우저는 음성인식을 지원하지 않습니다. 폰에서는 Chrome(안드로이드) 또는 Safari(iPhone)로 열어주세요.'); }
+  renderPads(); renderLangChooser();
 
   function showErr(m){ err.textContent=m; err.classList.add('show'); }
   function hideErr(){ err.classList.remove('show'); }
@@ -194,11 +223,11 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     try{localStorage.setItem('ft_gmodel',gmodel);}catch(e){}
     return gmodel;
   }
-  const LNAME={ko:'Korean',vi:'Vietnamese',zh:'Simplified Chinese'};
+  const LNAME=Object.fromEntries(Object.keys(ALL_LANG).map(k=>[k,ALL_LANG[k].en]));
   async function gemini(text,src,targets){
     if(!gkey) throw new Error('API 키가 없어요 (⚙ 설정)');
     const model=await pickModel(false);
-    const prompt=`You translate spoken sentences in a footwear (shoe) factory in Vietnam between Korean, Vietnamese and Chinese. Translate naturally as a factory coworker would say it: short, clear, polite workplace tone. Keep numbers, sizes, model names and dates exactly. Use this glossary when relevant (Korean = Vietnamese = Chinese):\n${gloss}\n\nSource language: ${LNAME[src]}\nSource: ${text}\n\nReturn ONLY JSON: {${targets.map(t=>'"'+t+'":"..."').join(',')}}`;
+    const prompt=`You translate spoken sentences in a footwear (shoe) factory in Vietnam between Korean, Vietnamese, Chinese, English and Japanese. Translate naturally as a factory coworker would say it: short, clear, polite workplace tone. Keep numbers, sizes, model names and dates exactly. Use this glossary when relevant (Korean = Vietnamese = Chinese = English = Japanese; blanks allowed):\n${gloss}\n\nSource language: ${LNAME[src]}\nSource: ${text}\n\nTarget languages: ${targets.map(t=>t+'='+LNAME[t]).join(', ')}\nReturn ONLY JSON: {${targets.map(t=>'"'+t+'":"..."').join(',')}}`;
     const t0=Date.now();
     const r=await tfetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':gkey},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2}})},45000);
     D('gen '+model+' '+((Date.now()-t0)/1000).toFixed(1)+'s status '+r.status);
@@ -211,11 +240,6 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   $('#tts').onclick=e=>{ autoTTS=!autoTTS; e.currentTarget.setAttribute('aria-pressed',autoTTS); };
   $('#clear').onclick=()=>{ log.innerHTML=''; };
 
-  // 톡 누르면 듣기 시작, 한 번 더 누르면 종료 (말이 끝나면 자동 종료)
-  pads.forEach(p=>{
-    p.addEventListener('contextmenu',e=>e.preventDefault());
-    p.addEventListener('click',e=>{ e.preventDefault(); if(current){ release(); return; } start(p.dataset.lang,p); });
-  });
   function release(){
     if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} setTimeout(finalizeNative,800); } return; }
     if(rec){ try{rec.stop();}catch(x){} }
@@ -307,7 +331,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 
   async function handle(lang,text){
     if(log.querySelector('.empty')) log.innerHTML='';
-    const targets=Object.keys(LANG).filter(k=>k!==lang);
+    const targets=Object.keys(ALL_LANG).filter(k=>active.includes(k)&&k!==lang);
     const card=document.createElement('div'); card.className='msg '+lang;
     card.innerHTML=`<p class="src"><small>${LANG[lang].name}</small>${esc(text)}</p>`+
       targets.map(t=>`<div class="tr" data-t="${t}"><span class="tag ${t}">${LANG[t].name}</span><div class="txt wait">번역 중…</div><button class="copy" title="복사">📋</button><button class="play" title="듣기">▶</button></div>`).join('');
