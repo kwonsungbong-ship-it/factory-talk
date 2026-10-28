@@ -15,9 +15,16 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - name: Prepare web files
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           mkdir -p www
           cp index.html manifest.json icon-*.png www/
+          if [ -n "$GEMINI_API_KEY" ]; then
+            sed -i "s|__GEMINI_KEY__|$GEMINI_API_KEY|" www/index.html && echo "builtin key: set"
+          else
+            echo "builtin key: none (secret GEMINI_API_KEY not set)"
+          fi
       - name: Install Capacitor
         run: npm install
       - name: Patch speech plugin (prefer Google recognizer)

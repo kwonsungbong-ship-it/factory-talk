@@ -144,17 +144,20 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 불량 = lỗi = 不良
 라인 = chuyền = 生产线
 확인 샘플 = mẫu xác nhận = 确认样`;
+  const BUILTIN_KEY='__GEMINI_KEY__'; // 빌드 시 GitHub Secret 값으로 치환됨 (없으면 빈값)
+  const builtin=(BUILTIN_KEY.startsWith('AQ.')||BUILTIN_KEY.startsWith('AIza'))?BUILTIN_KEY:'';
   let gkey='', gloss=DEFAULT_GLOSS, gmodel='';
-  try{ gkey=localStorage.getItem('ft_gkey')||''; gloss=localStorage.getItem('ft_gloss')||DEFAULT_GLOSS; gmodel=localStorage.getItem('ft_gmodel')||''; }catch(e){}
+  try{ gkey=localStorage.getItem('ft_gkey')||builtin; gloss=localStorage.getItem('ft_gloss')||DEFAULT_GLOSS; gmodel=localStorage.getItem('ft_gmodel')||''; }catch(e){}
   const panel=$('#panel'), gmsg=$('#gmsg');
-  $('#gloss').value=gloss; if(gkey) $('#gkey').value=gkey;
+  $('#gloss').value=gloss; if(gkey&&gkey!==builtin) $('#gkey').value=gkey;
+  if(builtin) $('#gkey').placeholder='앱 내장 키 사용 중 — 다른 키를 쓰려면 여기에 입력';
   $('#cfg').onclick=()=>{ panel.hidden=!panel.hidden; };
   $('#gclose').onclick=()=>{ panel.hidden=true; };
   $('#gsave').onclick=()=>{ gkey=$('#gkey').value.trim(); try{localStorage.setItem('ft_gkey',gkey);}catch(e){} gmsg.textContent=gkey?'저장됨. "연결 테스트"로 확인하세요.':'키가 비어 있어요.'; };
-  $('#gdel').onclick=()=>{ gkey=''; $('#gkey').value=''; try{localStorage.removeItem('ft_gkey');localStorage.removeItem('ft_gmodel');}catch(e){} gmodel=''; gmsg.textContent='삭제됨'; };
+  $('#gdel').onclick=()=>{ gkey=builtin; $('#gkey').value=''; try{localStorage.removeItem('ft_gkey');localStorage.removeItem('ft_gmodel');}catch(e){} gmodel=''; gmsg.textContent=builtin?'삭제됨 (앱 내장 키로 전환)':'삭제됨'; };
   $('#gsel').onchange=e=>{ const v=e.target.value; try{ v?localStorage.setItem('ft_gmodel_manual',v):localStorage.removeItem('ft_gmodel_manual'); }catch(x){} gmodel=''; gmsg.textContent=v?('모델: '+v+' — 연결 테스트로 확인'):'자동 선택'; };
   $('#gsaveg').onclick=()=>{ gloss=$('#gloss').value; try{localStorage.setItem('ft_gloss',gloss);}catch(e){} gmsg.textContent='사전 저장됨'; };
-  $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim(); gmsg.textContent='테스트 중…'; try{ await pickModel(true); gmsg.textContent='번역 요청 중 ('+gmodel+')…'; const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+gmodel+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
+  $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim()||builtin; gmsg.textContent='테스트 중…'; try{ await pickModel(true); gmsg.textContent='번역 요청 중 ('+gmodel+')…'; const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+gmodel+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
   // 네이티브(Capacitor) 환경에서는 CapacitorHttp 플러그인을 직접 호출 (fetch 패치가 POST에서 멈추는 문제 우회)
   const NHTTP = CAP && CAP.CapacitorHttp;
   function withTimeout(p,ms){ return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('응답 없음 ('+ms/1000+'초 초과)')),ms))]); }
@@ -255,7 +258,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     };
     try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
   }
-  let nativeOn=false, lastPartial='', listenersOn=false, maxT=null, dbg=[];
+  let nativeOn=false, lastPartial='', listenersOn=false, maxT=null, silT=null, dbg=[];
   function J(x){ try{ return JSON.stringify(x===undefined?null:x)||''; }catch(e){ return String(x); } }
   function D(m){ dbg.push(m); if(dbg.length>8) dbg.shift(); const el=document.getElementById('dbg'); if(el) el.textContent=dbg.join(' | '); }
   function finalizeNative(){
@@ -270,11 +273,11 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
       if(p.speechRecognition!=='granted'){ showErr('마이크 권한이 필요합니다. 폰 설정 → 앱 → Factory Talk → 권한 → 마이크 허용'); return; }
       if(!listenersOn){
         listenersOn=true;
-        await NSR.addListener('partialResults',d=>{ D('partial:'+J(d).slice(0,60)); const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
+        await NSR.addListener('partialResults',d=>{ D('partial:'+J(d).slice(0,60)); const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; clearTimeout(silT); silT=setTimeout(()=>{ if(nativeOn&&!usePopup){ D('silence stop'); release(); } },2000); } });
         await NSR.addListener('listeningState',d=>{ D('state:'+(d&&d.status)); if(d&&d.status==='stopped'&&nativeOn&&!usePopup) setTimeout(finalizeNative,300); });
       }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
-    current=lang; nativeOn=true; lastPartial=''; pads.forEach(x=>x.classList.toggle('rec',x===pad));
+    current=lang; nativeOn=true; lastPartial=''; clearTimeout(silT); pads.forEach(x=>x.classList.toggle('rec',x===pad));
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
     if(usePopup){
       try{
