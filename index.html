@@ -62,7 +62,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 <header>
   <div><h1>Factory Talk</h1><div class="st" id="status">버튼을 누르고 말하세요</div></div>
   <div class="opts">
-    <button id="tts" aria-pressed="true" title="번역 음성 자동 재생">🔊 자동</button>
+    <button id="tts" aria-pressed="false" title="번역 음성 자동 재생 (기본 꺼짐)">🔊 소리</button>
     <button id="clear" title="기록 지우기">🗑</button>
   </div>
 </header>
@@ -89,7 +89,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   const $ = s=>document.querySelector(s);
   const log=$('#log'), live=$('#live'), status=$('#status'), err=$('#err');
   const pads=[...document.querySelectorAll('.pad')];
-  let autoTTS=true, current=null, rec=null;
+  let autoTTS=false, current=null, rec=null;
 
   const CAP = (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) ? window.Capacitor.Plugins : null;
   const NSR = CAP && CAP.SpeechRecognition, NTTS = CAP && CAP.TextToSpeech;
