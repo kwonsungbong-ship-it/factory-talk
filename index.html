@@ -79,6 +79,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 <header>
   <div><h1>Factory Talk</h1><div class="st" id="status">버튼을 누르고 말하세요</div></div>
   <div class="opts">
+    <button id="cont" aria-pressed="false" title="연속 모드: 버튼 한 번 누르면 멈출 때까지 계속 듣고 문장마다 자동 번역">연속</button>
     <button id="popup" aria-pressed="true" title="Google 음성 팝업 사용">팝업</button>
     <button id="tts" aria-pressed="false" title="번역 음성 자동 재생 (기본 꺼짐)">🔊 소리</button>
     <button id="clear" title="기록 지우기">🗑</button>
@@ -135,7 +136,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     pads=[...box.querySelectorAll('.pad')];
     pads.forEach(p=>{
       p.addEventListener('contextmenu',e=>e.preventDefault());
-      p.addEventListener('click',e=>{ e.preventDefault(); if(current){ release(); return; } start(p.dataset.lang,p); });
+      p.addEventListener('click',e=>{ e.preventDefault(); if(current){ release(); return; } manualStop=false; start(p.dataset.lang,p); });
     });
     if(!SR && !NSR) pads.forEach(p=>p.disabled=true);
   }
@@ -158,6 +159,9 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   function showErr(m){ err.textContent=m; err.classList.add('show'); }
   function hideErr(){ err.classList.remove('show'); }
 
+  let contMode=false, manualStop=false; try{ contMode=localStorage.getItem('ft_cont')==='1'; }catch(e){}
+  $('#cont').setAttribute('aria-pressed',contMode);
+  $('#cont').onclick=e=>{ contMode=!contMode; e.currentTarget.setAttribute('aria-pressed',contMode); try{localStorage.setItem('ft_cont',contMode?'1':'0');}catch(x){} status.textContent=contMode?'연속 모드: 언어 버튼 한 번 누르면 멈출 때까지 계속 번역':'버튼을 누르고 말하세요'; if(!contMode&&current) { manualStop=true; release(); } };
   let usePopup=true; try{ usePopup=localStorage.getItem('ft_popup')!=='0'; }catch(e){}
   $('#popup').setAttribute('aria-pressed',usePopup);
   if(!NSR) $('#popup').hidden=true;
@@ -540,6 +544,7 @@ GORE / BOA / 방수 / 발수 = GORE / BOA / chống thấm / chống thấm nư�
   $('#clear').onclick=()=>{ log.innerHTML=''; };
 
   function release(){
+    manualStop=true;
     if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} setTimeout(finalizeNative,800); } return; }
     if(rec){ try{rec.stop();}catch(x){} }
   }
@@ -557,16 +562,19 @@ GORE / BOA / 방수 / 발수 = GORE / BOA / chống thấm / chống thấm nư�
     if(rec){ try{rec.abort();}catch(e){} }
     hideErr(); window.speechSynthesis && speechSynthesis.cancel(); NTTS && NTTS.stop().catch(()=>{});
     current=lang; pads.forEach(x=>x.classList.toggle('rec',x===pad));
-    rec=new SR(); rec.lang=LANG[lang].rec; rec.interimResults=true; rec.continuous=false; rec.maxAlternatives=1;
+    rec=new SR(); rec.lang=LANG[lang].rec; rec.interimResults=true; rec.continuous=contMode; rec.maxAlternatives=1; manualStop=false;
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
     let finalText='';
     rec.onresult=e=>{
       let interim='';
       for(let i=e.resultIndex;i<e.results.length;i++){
         const t=e.results[i][0].transcript;
-        if(e.results[i].isFinal) finalText+=t; else interim+=t;
+        if(e.results[i].isFinal){
+          if(contMode){ const seg=t.trim(); if(seg) handle(lang,seg); }
+          else finalText+=t;
+        } else interim+=t;
       }
-      live.textContent=finalText+interim;
+      live.textContent=(contMode?'':finalText)+interim||(contMode?'듣는 중…':'');
     };
     rec.onerror=e=>{
       if(e.error==='no-speech'){ status.textContent='소리가 안 들렸어요. 다시 눌러주세요'; }
@@ -575,7 +583,13 @@ GORE / BOA / 방수 / 발수 = GORE / BOA / chống thấm / chống thấm nư�
       else { status.textContent='오류: '+e.error; }
     };
     rec.onend=()=>{
-      const text=(finalText||live.textContent).trim().replace(/^…$/,'');
+      if(contMode && !manualStop && current===lang){
+        // 브라우저가 중간에 끊어도 다시 듣기 (연속 모드)
+        try{ rec=new SR(); }catch(e){ stop(); return; }
+        setTimeout(()=>{ if(current===lang && !manualStop) start(lang,pad); },300);
+        return;
+      }
+      const text=(finalText||live.textContent).trim().replace(/^…$/,'').replace(/^듣는 중…$/,'');
       stop();
       if(text) handle(lang,text);
     };
@@ -587,7 +601,9 @@ GORE / BOA / 방수 / 발수 = GORE / BOA / chống thấm / chống thấm nư�
   function finalizeNative(){
     if(!nativeOn) return;
     const lang=current, text=(lastPartial||'').trim();
-    stop(); if(text) handle(lang,text); else status.textContent='인식된 말이 없어요. 다시 눌러주세요';
+    const pad=pads.find(p=>p.dataset.lang===lang);
+    stop(); if(text) handle(lang,text); else if(!contMode) status.textContent='인식된 말이 없어요. 다시 눌러주세요';
+    if(contMode && !manualStop && !usePopup && pad){ setTimeout(()=>{ if(!current && !manualStop) startNative(lang,pad); },400); }
   }
   async function startNative(lang,pad){
     hideErr();
@@ -600,7 +616,7 @@ GORE / BOA / 방수 / 발수 = GORE / BOA / chống thấm / chống thấm nư�
         await NSR.addListener('listeningState',d=>{ D('state:'+(d&&d.status)); if(d&&d.status==='stopped'&&nativeOn&&!usePopup) setTimeout(finalizeNative,300); });
       }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
-    current=lang; nativeOn=true; lastPartial=''; clearTimeout(silT); pads.forEach(x=>x.classList.toggle('rec',x===pad));
+    current=lang; nativeOn=true; lastPartial=''; clearTimeout(silT); if(!contMode) manualStop=false; pads.forEach(x=>x.classList.toggle('rec',x===pad));
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중';
     if(usePopup){
       try{
