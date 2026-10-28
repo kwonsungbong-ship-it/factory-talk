@@ -57,6 +57,15 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.55)}50%{box-shadow:0 0 0 12px rgba(255,255,255,0)}}
 .err{background:#3a1d1d;border:1px solid var(--bad);border-radius:10px;padding:10px 12px;font-size:14px;margin-bottom:8px;display:none}
 .err.show{display:block}
+#panel{padding:14px max(16px,env(safe-area-inset-right,0px)) 14px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;gap:10px}
+#panel h2{font-size:16px;margin:0} #panel h3{font-size:13px;margin:6px 0 0;color:var(--muted)} #panel p{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+#panel input,#panel textarea{width:100%;font:14px/1.4 var(--f-body);background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:10px}
+#panel .row{display:flex;gap:8px;flex-wrap:wrap} #panel .row button{background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px 12px;font-size:14px}
+#gmsg{font-size:13px;min-height:18px} .mono{font-family:ui-monospace,monospace;user-select:all}
+.ai{display:flex;gap:8px;padding-top:8px;border-top:1px solid var(--line);align-items:center}
+.ai button{background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;padding:8px 12px;font-size:14px}
+.ai .note{font-size:12px;color:var(--muted)}
+.tr .txt.ai-on{color:#cfe3ff}
 @media (prefers-reduced-motion:reduce){.pad.rec{animation:none}}
 </style>
 </head>
@@ -67,9 +76,20 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     <button id="popup" aria-pressed="true" title="Google 음성 팝업 사용">팝업</button>
     <button id="tts" aria-pressed="false" title="번역 음성 자동 재생 (기본 꺼짐)">🔊 소리</button>
     <button id="clear" title="기록 지우기">🗑</button>
+    <button id="cfg" title="설정">⚙</button>
   </div>
 </header>
 
+<section id="panel" hidden>
+  <h2>AI 자연스러운 번역 (Gemini)</h2>
+  <p>무료 키: <span class="mono">aistudio.google.com/apikey</span> 에서 발급 → 아래에 붙여넣기. 키는 이 폰에만 저장됩니다.</p>
+  <input id="gkey" type="password" placeholder="AIza... API 키" autocomplete="off">
+  <div class="row"><button id="gsave">저장</button><button id="gtest">연결 테스트</button><button id="gdel">삭제</button></div>
+  <div id="gmsg"></div>
+  <h3>공장 용어 사전 (한국어 = 베트남어 = 중국어, 한 줄에 하나)</h3>
+  <textarea id="gloss" rows="7" spellcheck="false"></textarea>
+  <div class="row"><button id="gsaveg">사전 저장</button><button id="gclose">닫기</button></div>
+</section>
 <main id="log"><div class="empty">아래 버튼 중 <b>내가 말하는 언어</b>를 <b>한 번 누르고</b> 말하세요. 끝나면 버튼을 한 번 더 누르거나 잠시 기다리면 번역됩니다.<br>나머지 두 언어로 번역되어 바로 표시됩니다.<br><br>Nhấn ngôn ngữ của bạn và nói.<br>按你的语言，然后说话。</div></main>
 
 <footer>
@@ -107,6 +127,51 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   $('#popup').setAttribute('aria-pressed',usePopup);
   if(!NSR) $('#popup').hidden=true;
   $('#popup').onclick=e=>{ usePopup=!usePopup; e.currentTarget.setAttribute('aria-pressed',usePopup); try{localStorage.setItem('ft_popup',usePopup?'1':'0');}catch(x){} };
+  // ---- Gemini 설정 ----
+  const DEFAULT_GLOSS=`갑피 = mũ giày = 鞋面
+아웃솔 = đế ngoài = 大底
+중창 = đế giữa = 中底
+몰드 = khuôn = 模具
+라스트 = phom giày = 鞋楦
+접착 = dán keo = 粘合
+재단 = cắt = 裁断
+재봉 = may = 车缝
+샘플 = mẫu = 样品
+불량 = lỗi = 不良
+라인 = chuyền = 生产线
+확인 샘플 = mẫu xác nhận = 确认样`;
+  let gkey='', gloss=DEFAULT_GLOSS, gmodel='';
+  try{ gkey=localStorage.getItem('ft_gkey')||''; gloss=localStorage.getItem('ft_gloss')||DEFAULT_GLOSS; gmodel=localStorage.getItem('ft_gmodel')||''; }catch(e){}
+  const panel=$('#panel'), gmsg=$('#gmsg');
+  $('#gloss').value=gloss; if(gkey) $('#gkey').value=gkey;
+  $('#cfg').onclick=()=>{ panel.hidden=!panel.hidden; };
+  $('#gclose').onclick=()=>{ panel.hidden=true; };
+  $('#gsave').onclick=()=>{ gkey=$('#gkey').value.trim(); try{localStorage.setItem('ft_gkey',gkey);}catch(e){} gmsg.textContent=gkey?'저장됨. "연결 테스트"로 확인하세요.':'키가 비어 있어요.'; };
+  $('#gdel').onclick=()=>{ gkey=''; $('#gkey').value=''; try{localStorage.removeItem('ft_gkey');localStorage.removeItem('ft_gmodel');}catch(e){} gmodel=''; gmsg.textContent='삭제됨'; };
+  $('#gsaveg').onclick=()=>{ gloss=$('#gloss').value; try{localStorage.setItem('ft_gloss',gloss);}catch(e){} gmsg.textContent='사전 저장됨'; };
+  $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim(); gmsg.textContent='테스트 중…'; try{ const m=await pickModel(true); const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+m+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
+  async function pickModel(force){
+    if(gmodel&&!force) return gmodel;
+    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key='+encodeURIComponent(gkey));
+    if(!r.ok) throw new Error('키 확인 실패 HTTP '+r.status);
+    const j=await r.json(); const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''));
+    const pref=['gemini-2.5-flash','gemini-2.0-flash','gemini-2.5-flash-lite','gemini-2.0-flash-lite'];
+    gmodel=pref.find(p=>names.includes(p))||names.find(n=>/flash/.test(n)&&!/exp|preview|image|tts|live/.test(n))||names[0];
+    if(!gmodel) throw new Error('사용 가능한 모델 없음');
+    try{localStorage.setItem('ft_gmodel',gmodel);}catch(e){}
+    return gmodel;
+  }
+  const LNAME={ko:'Korean',vi:'Vietnamese',zh:'Simplified Chinese'};
+  async function gemini(text,src,targets){
+    if(!gkey) throw new Error('API 키가 없어요 (⚙ 설정)');
+    const model=await pickModel(false);
+    const prompt=`You translate spoken sentences in a footwear (shoe) factory in Vietnam between Korean, Vietnamese and Chinese. Translate naturally as a factory coworker would say it: short, clear, polite workplace tone. Keep numbers, sizes, model names and dates exactly. Use this glossary when relevant (Korean = Vietnamese = Chinese):\n${gloss}\n\nSource language: ${LNAME[src]}\nSource: ${text}\n\nReturn ONLY JSON: {${targets.map(t=>'"'+t+'":"..."').join(',')}}`;
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(gkey)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2,responseMimeType:'application/json'}})});
+    if(!r.ok){ let m='HTTP '+r.status; try{ const j=await r.json(); m+=' '+(j.error&&j.error.message||''); }catch(e){} throw new Error(m); }
+    const j=await r.json(); let t=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(p=>p.text||'').join('');
+    t=t.replace(/^```json\s*|```$/g,'').trim();
+    const o=JSON.parse(t); const out={}; targets.forEach(k=>out[k]=String(o[k]||'')); return out;
+  }
   $('#tts').onclick=e=>{ autoTTS=!autoTTS; e.currentTarget.setAttribute('aria-pressed',autoTTS); };
   $('#clear').onclick=()=>{ log.innerHTML=''; };
 
@@ -210,6 +275,17 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     const card=document.createElement('div'); card.className='msg '+lang;
     card.innerHTML=`<p class="src"><small>${LANG[lang].name}</small>${esc(text)}</p>`+
       targets.map(t=>`<div class="tr" data-t="${t}"><span class="tag ${t}">${LANG[t].name}</span><div class="txt wait">번역 중…</div><button class="play" title="듣기">▶</button></div>`).join('');
+    const ai=document.createElement('div'); ai.className='ai';
+    ai.innerHTML='<button type="button">✨ 자연스럽게</button><span class="note">'+(gkey?'AI 번역 (Gemini)':'⚙ 설정에서 키 입력 필요')+'</span>';
+    card.appendChild(ai);
+    ai.querySelector('button').onclick=async e=>{
+      const b=e.currentTarget, n=ai.querySelector('.note'); if(!gkey){ panel.hidden=false; return; }
+      b.disabled=true; n.textContent='AI 번역 중…';
+      try{ const o=await gemini(text,lang,targets);
+        for(const t of targets){ const row=card.querySelector(`.tr[data-t="${t}"]`), out=row.querySelector('.txt'); if(o[t]){ out.textContent=o[t]; out.classList.add('ai-on'); row.querySelector('.play').onclick=()=>speak(o[t],LANG[t].tts); } }
+        n.textContent='✨ AI 번역 적용됨'; b.hidden=true;
+      }catch(err){ n.textContent='실패: '+(err.message||err); b.disabled=false; }
+    };
     log.appendChild(card); log.scrollTop=log.scrollHeight;
     for(const t of targets){
       const row=card.querySelector(`.tr[data-t="${t}"]`), out=row.querySelector('.txt'), btn=row.querySelector('.play');
