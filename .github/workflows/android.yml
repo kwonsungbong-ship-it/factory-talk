@@ -20,6 +20,8 @@ jobs:
           cp index.html manifest.json icon-*.png www/
       - name: Install Capacitor
         run: npm install
+      - name: Patch speech plugin (prefer Google recognizer)
+        run: python3 patch-plugin.py
       - name: Add Android project
         run: |
           npx cap add android
