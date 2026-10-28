@@ -145,24 +145,34 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     };
     try{ rec.start(); }catch(e){ showErr('마이크를 시작할 수 없습니다: '+e.message); stop(); }
   }
-  let nativeOn=false;
+  let nativeOn=false, lastPartial='', nativeDone=null, listenersOn=false;
+  function finalizeNative(){
+    if(!nativeOn) return;
+    const lang=current, text=(lastPartial||'').trim();
+    stop(); if(text) handle(lang,text); else status.textContent='인식된 말이 없어요. 다시 눌러주세요';
+  }
   async function startNative(lang,pad){
     hideErr();
     try{
       const p=await NSR.requestPermissions();
       if(p.speechRecognition!=='granted'){ showErr('마이크 권한이 필요합니다. 폰 설정 → 앱 → Factory Talk → 권한 → 마이크 허용'); return; }
       const a=await NSR.available(); if(a && a.available===false){ showErr('이 폰에 음성인식 서비스가 없습니다. Google 앱을 설치/활성화해주세요.'); return; }
+      if(!listenersOn){
+        listenersOn=true;
+        await NSR.addListener('partialResults',d=>{ const m=(d&&d.matches&&d.matches[0])||''; if(m){ lastPartial=m; live.textContent=m; } });
+        await NSR.addListener('listeningState',d=>{ if(d&&d.status==='stopped') finalizeNative(); });
+      }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
-    current=lang; nativeOn=true; pads.forEach(x=>x.classList.toggle('rec',x===pad));
+    current=lang; nativeOn=true; lastPartial=''; pads.forEach(x=>x.classList.toggle('rec',x===pad));
     live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중 (다시 누르면 종료)';
     try{
-      const r=await NSR.start({language:LANG[lang].rec,maxResults:1,partialResults:false,popup:false});
-      const text=(r && r.matches && r.matches[0])||'';
-      stop(); if(text) handle(lang,text);
-    }catch(e){ stop(); if(!/No match|cancel/i.test(e.message||'')) status.textContent='소리가 안 들렸어요. 다시 눌러주세요'; }
+      const r=await NSR.start({language:LANG[lang].rec,maxResults:1,partialResults:true,popup:false});
+      const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
+      setTimeout(finalizeNative,400);
+    }catch(e){ const msg=e&&e.message||String(e); if(lastPartial) finalizeNative(); else { stop(); status.textContent='인식 실패: '+msg; } }
   }
   function stop(){
-    if(nativeOn){ nativeOn=false; try{NSR.stop();}catch(e){} }
+    if(nativeOn){ nativeOn=false; try{NSR.stop().catch(()=>{});}catch(e){} }
     if(rec){ try{rec.stop();}catch(e){} }
     rec=null; current=null; pads.forEach(x=>x.classList.remove('rec'));
     live.textContent=''; live.classList.remove('on'); status.textContent='버튼을 누르고 말하세요';
