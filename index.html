@@ -45,7 +45,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
 #live{min-height:26px;font-size:16px;color:var(--muted);margin-bottom:8px;text-align:center;word-break:break-word}
 #live.on{color:var(--fg)}
 .pads{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.pad{border:none;border-radius:16px;height:92px;color:#fff;font-family:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+.pad{touch-action:none;border:none;border-radius:16px;height:92px;color:#fff;font-family:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
   -webkit-tap-highlight-color:transparent;user-select:none;position:relative}
 .pad.ko{background:var(--ko)} .pad.vi{background:var(--vi);color:#2a1d02} .pad.zh{background:var(--zh)}
 .pad .big{font-size:22px;font-weight:800;line-height:1}
@@ -67,15 +67,15 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   </div>
 </header>
 
-<main id="log"><div class="empty">아래 버튼 중 <b>내가 말하는 언어</b>를 누르고 말하세요.<br>나머지 두 언어로 번역되어 바로 표시됩니다.<br><br>Nhấn ngôn ngữ của bạn và nói.<br>按你的语言，然后说话。</div></main>
+<main id="log"><div class="empty">아래 버튼 중 <b>내가 말하는 언어</b>를 <b>누른 채로</b> 말하고, 끝나면 손을 떼세요.<br>나머지 두 언어로 번역되어 바로 표시됩니다.<br><br>Nhấn ngôn ngữ của bạn và nói.<br>按你的语言，然后说话。</div></main>
 
 <footer>
   <div class="err" id="err"></div>
   <div id="live"></div>
   <div class="pads">
-    <button class="pad ko" data-lang="ko"><span class="big">한국어</span><span class="sub">눌러서 말하기</span></button>
-    <button class="pad vi" data-lang="vi"><span class="big">Tiếng Việt</span><span class="sub">Nhấn để nói</span></button>
-    <button class="pad zh" data-lang="zh"><span class="big">中文</span><span class="sub">按下说话</span></button>
+    <button class="pad ko" data-lang="ko"><span class="big">한국어</span><span class="sub">누르고 말하기</span></button>
+    <button class="pad vi" data-lang="vi"><span class="big">Tiếng Việt</span><span class="sub">Giữ và nói</span></button>
+    <button class="pad zh" data-lang="zh"><span class="big">中文</span><span class="sub">按住说话</span></button>
   </div>
 </footer>
 
@@ -102,11 +102,20 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   $('#tts').onclick=e=>{ autoTTS=!autoTTS; e.currentTarget.setAttribute('aria-pressed',autoTTS); };
   $('#clear').onclick=()=>{ log.innerHTML=''; };
 
-  pads.forEach(p=>p.onclick=()=>{
-    const l=p.dataset.lang;
-    if(current===l){ stop(); return; }
-    start(l,p);
+  // 무전기 방식: 누르고 있는 동안 듣고, 떼면 번역
+  let pressT=0;
+  pads.forEach(p=>{
+    p.addEventListener('contextmenu',e=>e.preventDefault());
+    p.addEventListener('pointerdown',e=>{ e.preventDefault(); if(current) return; pressT=Date.now(); try{p.setPointerCapture(e.pointerId);}catch(x){} start(p.dataset.lang,p); });
+    const up=e=>{ if(!current) return; const held=Date.now()-pressT; if(held<250){ return; } release(); };
+    p.addEventListener('pointerup',up); p.addEventListener('pointercancel',up);
   });
+  // 짧게 톡 누른 경우는 토글: 한 번 더 누르면 종료
+  document.addEventListener('pointerdown',e=>{ if(current && Date.now()-pressT>250 && !e.target.closest('.pad')) release(); });
+  function release(){
+    if(NSR){ if(nativeOn){ try{NSR.stop().catch(()=>{});}catch(x){} setTimeout(finalizeNative,700); } return; }
+    if(rec){ try{rec.stop();}catch(x){} }
+  }
 
   let micOK=false;
   async function ensureMic(){
@@ -164,7 +173,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
       }
     }catch(e){ showErr('음성인식 준비 실패: '+(e.message||e)); return; }
     current=lang; nativeOn=true; lastPartial=''; pads.forEach(x=>x.classList.toggle('rec',x===pad));
-    live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중 (다시 누르면 종료)';
+    live.textContent='…'; live.classList.add('on'); status.textContent=LANG[lang].name+' 듣는 중 — 말 끝나면 손 떼기';
     try{
       const r=await NSR.start({language:LANG[lang].rec,maxResults:1,partialResults:true,popup:false});
       const m=(r&&r.matches&&r.matches[0])||''; if(m) lastPartial=m;
