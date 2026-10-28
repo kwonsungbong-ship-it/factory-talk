@@ -34,12 +34,13 @@ header .st{font-size:12px;color:var(--muted)}
 .msg.ko{border-left-color:var(--ko)} .msg.vi{border-left-color:var(--vi)} .msg.zh{border-left-color:var(--zh)} .msg.en{border-left-color:var(--en)} .msg.ja{border-left-color:var(--ja)}
 .msg .src{font-size:20px;line-height:1.35;font-weight:600;margin:0 0 8px}
 .msg .src small{display:block;font-size:11px;color:var(--muted);font-weight:400;letter-spacing:.06em;text-transform:uppercase;margin-bottom:2px}
-.tr{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
-.tr .tag{flex:none;font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px;margin-top:3px}
+.tr{display:flex;flex-direction:column;gap:6px;padding:8px 0;border-top:1px solid var(--line)}
+.tr .head{display:flex;align-items:center;gap:8px} .tr .sp{flex:1}
+.tr .tag{flex:none;font-size:11px;font-weight:700;letter-spacing:.06em;padding:3px 7px;border-radius:6px}
 .tag.ko{background:var(--ko);color:#061126} .tag.vi{background:var(--vi);color:#2a1d02} .tag.zh{background:var(--zh);color:#2a0905} .tag.en{background:var(--en);color:#04261a} .tag.ja{background:var(--ja);color:#1d0a3a}
-.tr .txt{flex:1;min-width:0;font-size:24px;line-height:1.35;font-weight:700;word-break:break-word}
+.tr .txt{min-width:0;font-size:24px;line-height:1.35;font-weight:700;word-break:break-word}
 .tr .txt.wait{color:var(--muted);font-weight:400;font-size:16px}
-.tr .copy,.tr .play{flex:none;background:none;border:1px solid var(--line);color:var(--fg);border-radius:10px;width:44px;height:44px;font-size:18px}
+.tr .copy,.tr .play{flex:none;background:none;border:1px solid var(--line);color:var(--fg);border-radius:8px;width:40px;height:34px;font-size:16px}
 .empty{color:var(--muted);text-align:center;margin:auto;font-size:15px;line-height:1.6}
 footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-right,0px)) 12px max(16px,env(safe-area-inset-left,0px));background:var(--bg)}
 #live{min-height:26px;font-size:16px;color:var(--muted);margin-bottom:8px;text-align:center;word-break:break-word}
@@ -98,13 +99,14 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   <h3>공장 용어 사전 (한국어 = 베트남어 = 중국어 = 영어 = 일본어 순, 없는 칸은 비워도 됨, 한 줄에 하나)</h3>
   <textarea id="gloss" rows="7" spellcheck="false"></textarea>
   <div class="row"><button id="gsaveg">사전 저장</button><button id="gclose">닫기</button></div>
+  <h3>내부 로그 (문제 생기면 이 내용을 캡처해서 보내주세요)</h3>
+  <div id="dbg" style="font-size:11px;color:var(--muted);word-break:break-all;min-height:14px;line-height:1.4"></div>
 </section>
 <main id="log"><div class="empty">아래 버튼 중 <b>내가 말하는 언어</b>를 <b>한 번 누르고</b> 말하세요. 끝나면 버튼을 한 번 더 누르거나 잠시 기다리면 번역됩니다.<br>나머지 두 언어로 번역되어 바로 표시됩니다.<br><br>Nhấn ngôn ngữ của bạn và nói.<br>按你的语言，然后说话。</div></main>
 
 <footer>
   <div class="err" id="err"></div>
   <div id="live"></div>
-  <div id="dbg" style="font-size:10px;color:#56687c;word-break:break-all;min-height:12px"></div>
   <div class="pads" id="pads"></div>
 </footer>
 
@@ -334,7 +336,7 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     const targets=Object.keys(ALL_LANG).filter(k=>active.includes(k)&&k!==lang);
     const card=document.createElement('div'); card.className='msg '+lang;
     card.innerHTML=`<p class="src"><small>${LANG[lang].name}</small>${esc(text)}</p>`+
-      targets.map(t=>`<div class="tr" data-t="${t}"><span class="tag ${t}">${LANG[t].name}</span><div class="txt wait">번역 중…</div><button class="copy" title="복사">📋</button><button class="play" title="듣기">▶</button></div>`).join('');
+      targets.map(t=>`<div class="tr" data-t="${t}"><div class="head"><span class="tag ${t}">${LANG[t].name}</span><span class="sp"></span><button class="copy" title="복사">📋</button><button class="play" title="듣기">▶</button></div><div class="txt wait">번역 중…</div></div>`).join('');
     const ai=document.createElement('div'); ai.className='ai';
     ai.innerHTML='<button type="button" class="aib">✨ 자연스럽게</button><span class="note">'+(gkey?'AI 번역 (Gemini)':'⚙ 설정에서 키 입력 필요')+'</span><button type="button" class="copyall" title="원문+번역 전체 복사">📋 전체</button>';
     card.appendChild(ai);
