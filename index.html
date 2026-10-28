@@ -150,11 +150,19 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
   $('#gsave').onclick=()=>{ gkey=$('#gkey').value.trim(); try{localStorage.setItem('ft_gkey',gkey);}catch(e){} gmsg.textContent=gkey?'저장됨. "연결 테스트"로 확인하세요.':'키가 비어 있어요.'; };
   $('#gdel').onclick=()=>{ gkey=''; $('#gkey').value=''; try{localStorage.removeItem('ft_gkey');localStorage.removeItem('ft_gmodel');}catch(e){} gmodel=''; gmsg.textContent='삭제됨'; };
   $('#gsaveg').onclick=()=>{ gloss=$('#gloss').value; try{localStorage.setItem('ft_gloss',gloss);}catch(e){} gmsg.textContent='사전 저장됨'; };
-  $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim(); gmsg.textContent='테스트 중…'; try{ const m=await pickModel(true); const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+m+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
+  $('#gtest').onclick=async()=>{ gkey=$('#gkey').value.trim(); gmsg.textContent='테스트 중…'; try{ await pickModel(true); gmsg.textContent='번역 요청 중 ('+gmodel+')…'; const r=await gemini('안녕하세요','ko',['vi','zh']); gmsg.textContent='OK ('+gmodel+'): '+r.vi+' / '+r.zh; }catch(e){ gmsg.textContent='실패: '+(e.message||e); } };
+  function tfetch(url,opt,ms){
+    const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms||15000);
+    return fetch(url,Object.assign({},opt||{},{signal:c.signal})).catch(e=>{ throw new Error(e.name==='AbortError'?'응답 없음 ('+(ms||15000)/1000+'초 초과) — 인터넷 또는 차단 확인':(e.message||e)); }).finally(()=>clearTimeout(t));
+  }
+  const FALLBACK_MODELS=['gemini-2.5-flash','gemini-2.0-flash','gemini-2.5-flash-lite'];
   async function pickModel(force){
     if(gmodel&&!force) return gmodel;
-    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',{headers:{'x-goog-api-key':gkey}});
-    if(!r.ok) throw new Error('키 확인 실패 HTTP '+r.status);
+    gmsg.textContent='모델 목록 조회 중…';
+    let r; try{ r=await tfetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',{headers:{'x-goog-api-key':gkey}},12000); }
+    catch(e){ D('models err:'+e.message); gmodel=FALLBACK_MODELS[0]; gmsg.textContent='목록 조회 실패, 기본 모델로 시도: '+e.message; return gmodel; }
+    if(r.status===401||r.status===403){ let m=''; try{ const j=await r.json(); m=(j.error&&j.error.message)||''; }catch(e){} throw new Error('키 거부 HTTP '+r.status+' '+m); }
+    if(!r.ok){ gmodel=FALLBACK_MODELS[0]; return gmodel; }
     const j=await r.json(); const names=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>m.name.replace('models/',''));
     const ver=n=>{ const m=n.match(/^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/); return m?parseFloat(m[1])+(m[2]?0:0.001):-1; };
     const flash=names.filter(n=>ver(n)>=0).sort((a,b)=>ver(b)-ver(a));
@@ -168,7 +176,8 @@ footer{border-top:1px solid var(--line);padding:10px max(16px,env(safe-area-inse
     if(!gkey) throw new Error('API 키가 없어요 (⚙ 설정)');
     const model=await pickModel(false);
     const prompt=`You translate spoken sentences in a footwear (shoe) factory in Vietnam between Korean, Vietnamese and Chinese. Translate naturally as a factory coworker would say it: short, clear, polite workplace tone. Keep numbers, sizes, model names and dates exactly. Use this glossary when relevant (Korean = Vietnamese = Chinese):\n${gloss}\n\nSource language: ${LNAME[src]}\nSource: ${text}\n\nReturn ONLY JSON: {${targets.map(t=>'"'+t+'":"..."').join(',')}}`;
-    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':gkey},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2,responseMimeType:'application/json'}})});
+    const r=await tfetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':gkey},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.2,responseMimeType:'application/json'}})});
+    if(r.status===404 && !model.startsWith('_')){ const i=FALLBACK_MODELS.indexOf(model); const next=FALLBACK_MODELS[i+1]; if(next){ gmodel=next; return gemini(text,src,targets); } }
     if(!r.ok){ let m='HTTP '+r.status; try{ const j=await r.json(); m+=' '+(j.error&&j.error.message||''); }catch(e){} throw new Error(m); }
     const j=await r.json(); let t=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(p=>p.text||'').join('');
     t=t.replace(/^```json\s*|```$/g,'').trim();
