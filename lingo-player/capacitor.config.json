@@ -1,0 +1,8 @@
+{
+  "appId": "vn.bv.lingoplayer",
+  "appName": "Lingo Player",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}

@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101820">
+<title>Lingo Player</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#101820;--panel:#182430;--panel2:#1f2e3c;--line:#2a3b4c;--text:#e6ecf0;--mute:#8da0b3;--acc:#54c8aa;--acc2:#ffd166;--danger:#ff6b6b;--fs:20px}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Noto Sans KR","Segoe UI",sans-serif;font-size:16px}
+body{display:flex;flex-direction:column;padding-top:env(safe-area-inset-top)}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
+button.pri{background:var(--acc);color:#07211a;border-color:var(--acc);font-weight:700}
+button.ghost{background:transparent;border-color:transparent}
+button.icon{width:46px;height:46px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:20px}
+input,select,textarea{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;width:100%}
+label{display:block;color:var(--mute);font-size:13px;margin:12px 0 4px}
+header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+main{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+.hidden{display:none!important}
+.muted{color:var(--mute);font-size:13px}
+.msg{padding:10px 12px;font-size:14px;color:var(--mute);white-space:pre-wrap}
+.msg.err{color:var(--danger)}
+/* library */
+#lib{padding:12px}
+.addrow{display:flex;gap:8px;margin-bottom:12px}
+.addrow button{flex:1}
+.track{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px}
+.track .info{flex:1;min-width:0}
+.track .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track .sub{font-size:12px;color:var(--mute);margin-top:3px}
+.badge{font-size:11px;padding:2px 7px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);color:var(--mute)}
+.badge.ok{color:#07211a;background:var(--acc);border-color:var(--acc)}
+.empty{text-align:center;color:var(--mute);padding:40px 16px;line-height:1.6}
+/* player */
+#player{display:flex;flex-direction:column;height:100%}
+#lyrics{flex:1;overflow:auto;padding:24px 16px 45vh;scroll-behavior:smooth;font-size:var(--fs);line-height:1.75}
+.line{margin:0 0 18px;padding:6px 10px;border-radius:10px;color:var(--mute);transition:background .15s}
+.line.cur{color:var(--text);background:var(--panel)}
+.line .tr{display:block;font-size:.72em;color:var(--mute);margin-top:2px;line-height:1.4}
+.line.cur .tr{color:#b9c8d6}
+body.notr .tr{display:none}
+.w{display:inline-block;border-radius:6px;padding:0 3px;margin:0 1px;transition:background .08s}
+.line.cur .w.done{color:#b9c8d6}
+.w.now{background:var(--acc2);color:#1a1400;font-weight:700}
+.line.cur .w:active{background:var(--panel2)}
+#ctl{background:var(--panel);border-top:1px solid var(--line);padding:8px 12px calc(10px + env(safe-area-inset-bottom))}
+#bar{width:100%;margin:4px 0 2px;accent-color:var(--acc)}
+.times{display:flex;justify-content:space-between;font-size:12px;color:var(--mute);margin-bottom:6px}
+.row{display:flex;align-items:center;justify-content:center;gap:10px}
+.row.small{gap:6px;margin-top:8px;flex-wrap:wrap}
+.row.small button{padding:6px 10px;font-size:13px}
+.row.small button.on{border-color:var(--acc);color:var(--acc)}
+#play{width:62px;height:62px;border-radius:50%;font-size:26px}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:18px;width:min(92vw,440px);max-height:88vh;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.55)}
+dialog h2{margin:0 0 8px;font-size:18px}
+.dlg-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+#wpop .word{font-size:28px;font-weight:700;margin-bottom:4px}
+#wpop .ctx{color:var(--mute);font-size:14px;margin-bottom:10px}
+#wpop .mean{font-size:17px;line-height:1.5;min-height:48px;white-space:pre-wrap}
+#prog{display:flex;align-items:center;gap:10px}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:sp 1s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <button id="back" class="icon ghost hidden" title="목록">‹</button>
+  <h1 id="title">Lingo Player</h1>
+  <button id="btnAnalyze" class="hidden" title="단어 싱크 분석">분석</button>
+  <button id="btnSet" class="icon ghost" title="설정">⚙</button>
+</header>
+<main>
+  <section id="lib">
+    <div class="addrow">
+      <button id="btnAdd" class="pri">＋ 음악 파일 추가</button>
+    </div>
+    <div id="libMsg" class="msg hidden"></div>
+    <div id="list"></div>
+  </section>
+  <section id="player" class="hidden">
+    <div id="lyrics"></div>
+    <div id="ctl">
+      <input id="bar" type="range" min="0" max="1000" value="0">
+      <div class="times"><span id="tCur">0:00</span><span id="tDur">0:00</span></div>
+      <div class="row">
+        <button id="prevL" class="icon" title="이전 문장">⏮</button>
+        <button id="back5" class="icon" title="5초 뒤로">↺</button>
+        <button id="play" class="pri">▶</button>
+        <button id="fwd5" class="icon" title="5초 앞으로">↻</button>
+        <button id="nextL" class="icon" title="다음 문장">⏭</button>
+      </div>
+      <div class="row small">
+        <button id="loop" title="현재 문장 반복">문장 반복</button>
+        <button id="rate">1.0x</button>
+        <button id="trToggle" class="on">번역</button>
+        <button id="fsBtn">글자</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<input id="file" type="file" accept="audio/*,.mp3,.m4a,.wav,.ogg,.opus,.webm,.aac,.flac" multiple class="hidden">
+
+<dialog id="dSet">
+  <h2>설정</h2>
+  <label>OpenAI API 키 <span class="muted">(Whisper 음성인식 + 번역)</span></label>
+  <input id="key" type="password" placeholder="sk-…" autocomplete="off">
+  <div id="keyMsg" class="msg"></div>
+  <label>음성 언어 (분석 시 사용)</label>
+  <select id="lang">
+    <option value="">자동 감지</option>
+    <option value="vi">베트남어</option>
+    <option value="en">영어</option>
+    <option value="zh">중국어</option>
+    <option value="ja">일본어</option>
+    <option value="ko">한국어</option>
+    <option value="es">스페인어</option>
+    <option value="fr">프랑스어</option>
+  </select>
+  <label>번역 언어</label>
+  <select id="tlang">
+    <option value="ko">한국어</option>
+    <option value="en">English</option>
+    <option value="vi">Tiếng Việt</option>
+    <option value="zh">中文</option>
+    <option value="ja">日本語</option>
+  </select>
+  <div class="dlg-actions">
+    <button id="keyTest">키 테스트</button>
+    <button id="setClose" class="pri">닫기</button>
+  </div>
+  <p class="muted" style="margin:14px 0 0;line-height:1.5">파일은 이 기기 안에만 저장됩니다. 분석 시 오디오가 OpenAI 서버로 전송되며, 결과는 기기에 저장되어 다시 분석하지 않습니다. Whisper는 25MB 이하 파일만 받습니다.</p>
+</dialog>
+
+<dialog id="dProg">
+  <h2>단어 싱크 분석 중</h2>
+  <div id="prog"><span class="spin"></span><span id="progMsg">업로드 중…</span></div>
+  <div class="dlg-actions"><button id="progCancel">취소</button></div>
+</dialog>
+
+<dialog id="wpop">
+  <div class="word" id="wpWord"></div>
+  <div class="ctx" id="wpCtx"></div>
+  <div class="mean" id="wpMean"></div>
+  <div class="dlg-actions">
+    <button id="wpHere">여기부터 재생</button>
+    <button id="wpClose" class="pri">닫기</button>
+  </div>
+</dialog>
+
+<dialog id="dTrack">
+  <h2 id="dtName" style="word-break:break-all"></h2>
+  <div class="muted" id="dtSub"></div>
+  <div class="dlg-actions" style="justify-content:space-between">
+    <button id="dtDel" style="color:var(--danger)">삭제</button>
+    <span><button id="dtReset">분석 초기화</button> <button id="dtClose" class="pri">닫기</button></span>
+  </div>
+</dialog>
+
+<script>
+(()=>{
+'use strict';
+const $=s=>document.querySelector(s);
+const LS={get:(k,d)=>{try{const v=localStorage.getItem(k);return v==null?d:v}catch(e){return d}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+const fmt=s=>{s=Math.max(0,s|0);return (s/60|0)+':'+String(s%60).padStart(2,'0')};
+const fmtSize=b=>b>1048576?(b/1048576).toFixed(1)+' MB':(b/1024|0)+' KB';
+const LANGN={vi:'베트남어',en:'영어',zh:'중국어',ja:'일본어',ko:'한국어',es:'스페인어',fr:'프랑스어'};
+const TLN={ko:'Korean',en:'English',vi:'Vietnamese',zh:'Chinese',ja:'Japanese'};
+
+/* ---------- IndexedDB ---------- */
+const DB={
+  _p:null,
+  open(){ if(this._p) return this._p; this._p=new Promise((res,rej)=>{ const r=indexedDB.open('lingo',1);
+    r.onupgradeneeded=()=>{ r.result.createObjectStore('tracks',{keyPath:'id'}); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); return this._p; },
+  async tx(mode,fn){ const db=await this.open(); return new Promise((res,rej)=>{ const t=db.transaction('tracks',mode); const st=t.objectStore('tracks'); const q=fn(st); t.oncomplete=()=>res(q&&q.result); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error); }); },
+  all(){ return this.tx('readonly',st=>st.getAll()); },
+  get(id){ return this.tx('readonly',st=>st.get(id)); },
+  put(t){ return this.tx('readwrite',st=>st.put(t)); },
+  del(id){ return this.tx('readwrite',st=>st.delete(id)); }
+};
+
+/* ---------- state ---------- */
+let tracks=[], cur=null, flat=[], lineEls=[], wordEls=[], curW=-1, curL=-1, loopOn=false, raf=0, objUrl=null;
+const RATES=[0.5,0.7,0.85,1,1.25];
+const audio=new Audio(); audio.preload='auto';
+let key=LS.get('okey','');
+$('#key').value=LS.get('okey','');
+$('#lang').value=LS.get('lang',''); $('#tlang').value=LS.get('tlang','ko');
+document.documentElement.style.setProperty('--fs',LS.get('fs','20')+'px');
+if(LS.get('notr','0')==='1'){ document.body.classList.add('notr'); $('#trToggle').classList.remove('on'); }
+
+/* ---------- library ---------- */
+async function loadLib(){ tracks=(await DB.all()).sort((a,b)=>b.added-a.added); renderLib(); }
+function renderLib(){
+  const list=$('#list'); list.innerHTML='';
+  if(!tracks.length){ list.innerHTML='<div class="empty">아직 음악이 없습니다.<br>위 버튼으로 기기에 저장된 음악 파일을 추가하세요.<br><span class="muted">(유튜브에서 받은 MP3 등 25MB 이하)</span></div>'; return; }
+  for(const t of tracks){
+    const el=document.createElement('div'); el.className='track';
+    const n=t.transcript?t.transcript.segments.length:0;
+    el.innerHTML=`<div class="info"><div class="name"></div><div class="sub">${t.duration?fmt(t.duration)+' · ':''}${fmtSize(t.size)}${t.transcript?' · '+n+'문장'+(t.transcript.language?' · '+(LANGN[t.transcript.language]||t.transcript.language):''):''}</div></div>
+      <span class="badge ${t.transcript?'ok':''}">${t.transcript?'싱크 완료':'미분석'}</span><button class="icon ghost more" title="관리">⋯</button>`;
+    el.querySelector('.name').textContent=t.name;
+    el.querySelector('.more').onclick=e=>{ e.stopPropagation(); openTrackDlg(t); };
+    el.onclick=()=>openPlayer(t);
+    list.appendChild(el);
+  }
+}
+$('#btnAdd').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  const files=[...e.target.files]; e.target.value='';
+  const msg=$('#libMsg'); msg.classList.remove('hidden','err');
+  for(const f of files){
+    msg.textContent='추가 중: '+f.name;
+    const t={id:Date.now()+'-'+Math.random().toString(36).slice(2,8),name:f.name.replace(/\.[^.]+$/,''),size:f.size,type:f.type||'audio/mpeg',added:Date.now(),blob:f,duration:0,transcript:null,translations:{},meanings:{}};
+    try{ t.duration=await probeDuration(f); }catch(e){}
+    try{ await DB.put(t); }catch(err){ msg.classList.add('err'); msg.textContent='저장 실패: '+(err.message||err); continue; }
+  }
+  msg.classList.add('hidden'); await loadLib();
+};
+function probeDuration(blob){ return new Promise((res,rej)=>{ const a=new Audio(); const u=URL.createObjectURL(blob); a.preload='metadata'; a.onloadedmetadata=()=>{ URL.revokeObjectURL(u); res(isFinite(a.duration)?a.duration:0); }; a.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('decode')); }; a.src=u; }); }
+
+let dlgTrack=null;
+function openTrackDlg(t){ dlgTrack=t; $('#dtName').textContent=t.name; $('#dtSub').textContent=fmtSize(t.size)+(t.transcript?' · 분석됨':' · 미분석'); $('#dtReset').disabled=!t.transcript; $('#dTrack').showModal(); }
+$('#dtClose').onclick=()=>$('#dTrack').close();
+$('#dtDel').onclick=async()=>{ if(!confirm('"'+dlgTrack.name+'" 을(를) 삭제할까요?')) return; await DB.del(dlgTrack.id); $('#dTrack').close(); if(cur&&cur.id===dlgTrack.id) closePlayer(); await loadLib(); };
+$('#dtReset').onclick=async()=>{ dlgTrack.transcript=null; dlgTrack.translations={}; dlgTrack.meanings={}; await DB.put(dlgTrack); $('#dTrack').close(); await loadLib(); };
+
+/* ---------- settings ---------- */
+$('#btnSet').onclick=()=>$('#dSet').showModal();
+$('#setClose').onclick=()=>$('#dSet').close();
+$('#key').onchange=()=>{ LS.set('okey',$('#key').value.trim()); key=$('#key').value.trim(); $('#keyMsg').textContent=''; };
+$('#lang').onchange=()=>LS.set('lang',$('#lang').value);
+$('#tlang').onchange=()=>LS.set('tlang',$('#tlang').value);
+$('#keyTest').onclick=async()=>{ $('#key').onchange(); const m=$('#keyMsg'); m.classList.remove('err'); if(!key){ m.classList.add('err'); m.textContent='키를 입력하세요.'; return; } m.textContent='확인 중…';
+  try{ const r=await fetch('https://api.openai.com/v1/models/whisper-1',{headers:{Authorization:'Bearer '+key}}); if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401?' (키가 올바르지 않음)':'')); m.textContent='OK: whisper-1 사용 가능'; }
+  catch(e){ m.classList.add('err'); m.textContent='실패: '+(e.message||e); } };
+
+/* ---------- OpenAI calls ---------- */
+function needKey(){ if(!key){ $('#dSet').showModal(); $('#keyMsg').classList.add('err'); $('#keyMsg').textContent='먼저 OpenAI API 키를 입력하세요.'; throw new Error('no key'); } }
+async function apiErr(r){ let d=''; try{ const j=await r.json(); d=j.error&&j.error.message||''; }catch(e){} return new Error('HTTP '+r.status+(d?': '+d:'')); }
+
+async function transcribe(t,signal){
+  needKey();
+  if(t.size>25*1048576) throw new Error('파일이 25MB를 넘습니다. Whisper는 25MB 이하만 받습니다. 더 작은 파일(낮은 비트레이트)로 변환해 주세요.');
+  const fd=new FormData();
+  const ext=(t.type.split('/')[1]||'mp3').replace('mpeg','mp3').replace('x-m4a','m4a');
+  fd.append('file',t.blob,'audio.'+ext);
+  fd.append('model','whisper-1');
+  fd.append('response_format','verbose_json');
+  fd.append('timestamp_granularities[]','word');
+  fd.append('timestamp_granularities[]','segment');
+  const lang=$('#lang').value; if(lang) fd.append('language',lang);
+  const r=await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd,signal});
+  if(!r.ok) throw await apiErr(r);
+  const j=await r.json();
+  return buildTranscript(j);
+}
+// Whisper는 단어 배열과 문장(segment) 배열을 따로 주므로 시간 기준으로 합친다.
+function buildTranscript(j){
+  const words=(j.words||[]).map(w=>({w:String(w.word).trim(),s:+w.start,e:+w.end})).filter(w=>w.w);
+  let segs=(j.segments||[]).map(s=>({s:+s.start,e:+s.end,text:String(s.text||'').trim(),words:[]}));
+  if(!segs.length){ // segment 없이 단어만 온 경우: 문장부호/간격으로 끊기
+    let c=null;
+    for(const w of words){ if(!c||w.s-c.e>1.2||/[.!?。！？]$/.test(c.words[c.words.length-1].w)){ c={s:w.s,e:w.e,text:'',words:[]}; segs.push(c);} c.words.push(w); c.e=w.e; }
+    segs.forEach(s=>s.text=s.words.map(w=>w.w).join(' '));
+  }else{
+    let si=0;
+    for(const w of words){
+      while(si<segs.length-1 && w.s>=segs[si+1].s-0.05) si++;
+      segs[si].words.push(w);
+    }
+    segs=segs.filter(s=>s.words.length||s.text);
+    for(const s of segs){ if(!s.words.length) s.words=[{w:s.text,s:s.s,e:s.e}]; }
+  }
+  return {language:j.language||'',segments:segs,text:j.text||''};
+}
+
+async function chat(messages,signal){
+  needKey();
+  const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},signal,
+    body:JSON.stringify({model:'gpt-4o-mini',temperature:0.2,response_format:{type:'json_object'},messages})});
+  if(!r.ok) throw await apiErr(r);
+  const j=await r.json(); return JSON.parse(j.choices[0].message.content);
+}
+async function translateAll(t,tl,signal){
+  const lines=t.transcript.segments.map(s=>s.text);
+  const out=new Array(lines.length).fill('');
+  const CH=60;
+  for(let i=0;i<lines.length;i+=CH){
+    const part=lines.slice(i,i+CH);
+    const j=await chat([{role:'system',content:`Translate each line of these song/lesson lyrics into ${TLN[tl]||tl} for a language learner. Keep line count identical and order the same. Return JSON {"lines":[...]} with exactly ${part.length} strings.`},{role:'user',content:JSON.stringify(part)}],signal);
+    const arr=Array.isArray(j.lines)?j.lines:[];
+    for(let k=0;k<part.length;k++) out[i+k]=String(arr[k]||'');
+  }
+  return out;
+}
+async function wordMeaning(word,ctx,tl){
+  const j=await chat([{role:'system',content:`You help a language learner. Explain the given word as used in the sentence. Answer in ${TLN[tl]||tl}. Return JSON {"meaning":"short meaning (1 line)","note":"pronunciation or usage tip, 1 line, may be empty"}.`},{role:'user',content:JSON.stringify({word,sentence:ctx})}]);
+  return [j.meaning,j.note].filter(Boolean).join('\n');
+}
+
+/* ---------- analysis flow ---------- */
+let ctrl=null;
+$('#progCancel').onclick=()=>{ if(ctrl) ctrl.abort(); };
+async function analyze(t){
+  try{ needKey(); }catch(e){ return; }
+  ctrl=new AbortController(); const sig=ctrl.signal;
+  $('#progMsg').textContent='Whisper로 음성 분석 중… (파일 길이에 따라 수십 초)'; $('#dProg').showModal();
+  try{
+    const tr=await transcribe(t,sig);
+    if(!tr.segments.length) throw new Error('인식된 음성이 없습니다.');
+    t.transcript=tr; t.translations={}; t.meanings={}; await DB.put(t);
+    const tl=$('#tlang').value;
+    $('#progMsg').textContent='번역 중…';
+    try{ t.translations[tl]=await translateAll(t,tl,sig); await DB.put(t); }catch(e){ if(e.name==='AbortError') throw e; console.warn('translate',e); }
+    $('#dProg').close();
+    if(cur&&cur.id===t.id) buildLyrics(); await loadLib();
+  }catch(e){
+    $('#dProg').close();
+    if(e.name==='AbortError') return;
+    alert('분석 실패: '+(e.message||e));
+  }finally{ ctrl=null; }
+}
+$('#btnAnalyze').onclick=()=>cur&&analyze(cur);
+
+/* ---------- player ---------- */
+async function openPlayer(t){
+  cur=await DB.get(t.id)||t;
+  $('#lib').classList.add('hidden'); $('#player').classList.remove('hidden'); $('#back').classList.remove('hidden'); $('#btnAnalyze').classList.remove('hidden');
+  $('#title').textContent=cur.name;
+  if(objUrl) URL.revokeObjectURL(objUrl); objUrl=URL.createObjectURL(cur.blob); audio.src=objUrl; audio.playbackRate=+LS.get('rate','1'); $('#rate').textContent=audio.playbackRate+'x';
+  loopOn=false; $('#loop').classList.remove('on');
+  buildLyrics();
+  if(!cur.transcript) analyze(cur);
+}
+function closePlayer(){ audio.pause(); cancelAnimationFrame(raf); cur=null; $('#player').classList.add('hidden'); $('#lib').classList.remove('hidden'); $('#back').classList.add('hidden'); $('#btnAnalyze').classList.add('hidden'); $('#title').textContent='Lingo Player'; }
+$('#back').onclick=closePlayer;
+
+function buildLyrics(){
+  const L=$('#lyrics'); L.innerHTML=''; flat=[]; lineEls=[]; wordEls=[]; curW=-1; curL=-1;
+  if(!cur.transcript){ L.innerHTML='<div class="empty">아직 단어 싱크가 없습니다.<br>오른쪽 위 <b>분석</b> 버튼을 누르면 Whisper로 단어 타이밍을 뽑습니다.</div>'; $('#btnAnalyze').textContent='분석'; return; }
+  $('#btnAnalyze').textContent='재분석';
+  const tl=$('#tlang').value; const trs=cur.translations[tl]||null;
+  cur.transcript.segments.forEach((s,li)=>{
+    const p=document.createElement('p'); p.className='line'; p.dataset.i=li;
+    s.words.forEach(w=>{ const sp=document.createElement('span'); sp.className='w'; sp.textContent=w.w; const idx=flat.length; flat.push({...w,li}); wordEls.push(sp); sp.onclick=e=>{ e.stopPropagation(); showWord(idx); }; p.appendChild(sp); p.appendChild(document.createTextNode(' ')); });
+    if(trs&&trs[li]){ const tr=document.createElement('span'); tr.className='tr'; tr.textContent=trs[li]; p.appendChild(tr); }
+    p.onclick=()=>{ seek(s.s); if(audio.paused) audio.play(); };
+    L.appendChild(p); lineEls.push(p);
+  });
+  if(!trs) ensureTranslation();
+}
+async function ensureTranslation(){
+  const tl=$('#tlang').value; const t=cur; if(!t||!t.transcript||t.translations[tl]||!key) return;
+  try{ const tr=await translateAll(t,tl); t.translations[tl]=tr; await DB.put(t); if(cur&&cur.id===t.id) { lineEls.forEach((p,li)=>{ if(tr[li]&&!p.querySelector('.tr')){ const s=document.createElement('span'); s.className='tr'; s.textContent=tr[li]; p.appendChild(s);} }); } }catch(e){ console.warn('translate',e); }
+}
+function seek(s){ audio.currentTime=Math.max(0,s+0.01); tick(true); }
+function findWord(t){ let lo=0,hi=flat.length-1,ans=-1; while(lo<=hi){ const m=(lo+hi)>>1; if(flat[m].s<=t){ ans=m; lo=m+1; } else hi=m-1; } return ans; }
+function tick(force){
+  const t=audio.currentTime;
+  $('#bar').value=audio.duration?Math.round(t/audio.duration*1000):0; $('#tCur').textContent=fmt(t);
+  if(flat.length){
+    let w=findWord(t); if(w>=0 && t>flat[w].e+0.35 && w<flat.length-1 && t<flat[w+1].s) { /* 단어 사이 공백: 마지막 단어 유지 */ }
+    if(w!==curW||force){
+      if(curW>=0&&wordEls[curW]) wordEls[curW].classList.remove('now');
+      for(let i=curW+1;i<=w;i++) wordEls[i]&&wordEls[i].classList.add('done');
+      for(let i=w+1;i<=curW;i++) wordEls[i]&&wordEls[i].classList.remove('done');
+      if(force){ wordEls.forEach((e,i)=>e.classList.toggle('done',i<w)); }
+      curW=w; if(w>=0){ wordEls[w].classList.add('now'); setLine(flat[w].li); }
+    }
+    if(loopOn&&curL>=0){ const s=cur.transcript.segments[curL]; if(t>=s.e-0.02||t<s.s-0.5){ audio.currentTime=s.s; } }
+  }
+  if(!audio.paused) raf=requestAnimationFrame(()=>tick(false));
+}
+function setLine(li){ if(li===curL) return; if(curL>=0&&lineEls[curL]) lineEls[curL].classList.remove('cur'); curL=li; const p=lineEls[li]; if(!p) return; p.classList.add('cur');
+  const L=$('#lyrics'); const top=p.offsetTop-L.clientHeight*0.35; L.scrollTo({top:Math.max(0,top),behavior:'smooth'}); }
+audio.onplay=()=>{ $('#play').textContent='❚❚'; cancelAnimationFrame(raf); tick(false); };
+audio.onpause=()=>{ $('#play').textContent='▶'; cancelAnimationFrame(raf); tick(true); };
+audio.onended=()=>{ $('#play').textContent='▶'; };
+audio.onloadedmetadata=()=>{ $('#tDur').textContent=fmt(audio.duration); if(cur&&!cur.duration&&isFinite(audio.duration)){ cur.duration=audio.duration; DB.put(cur).then(loadLib); } };
+audio.ontimeupdate=()=>{ if(audio.paused) tick(false); };
+$('#play').onclick=()=>audio.paused?audio.play():audio.pause();
+$('#bar').oninput=()=>{ if(audio.duration) seek(audio.duration*$('#bar').value/1000); };
+$('#back5').onclick=()=>seek(audio.currentTime-5);
+$('#fwd5').onclick=()=>seek(audio.currentTime+5);
+$('#prevL').onclick=()=>{ if(!cur||!cur.transcript) return seek(audio.currentTime-5); const segs=cur.transcript.segments; let li=curL; if(li>=0&&audio.currentTime-segs[li].s>1.5) return seek(segs[li].s); seek(segs[Math.max(0,li-1)].s); };
+$('#nextL').onclick=()=>{ if(!cur||!cur.transcript) return seek(audio.currentTime+5); const segs=cur.transcript.segments; const li=Math.min(segs.length-1,curL+1); seek(segs[li].s); };
+$('#loop').onclick=()=>{ loopOn=!loopOn; $('#loop').classList.toggle('on',loopOn); };
+$('#rate').onclick=()=>{ const i=(RATES.indexOf(audio.playbackRate)+1)%RATES.length; audio.playbackRate=RATES[i]; LS.set('rate',RATES[i]); $('#rate').textContent=RATES[i]+'x'; };
+$('#trToggle').onclick=()=>{ const off=document.body.classList.toggle('notr'); $('#trToggle').classList.toggle('on',!off); LS.set('notr',off?'1':'0'); };
+$('#fsBtn').onclick=()=>{ const sizes=[16,20,24,28]; const c=+LS.get('fs','20'); const n=sizes[(sizes.indexOf(c)+1)%sizes.length]; LS.set('fs',n); document.documentElement.style.setProperty('--fs',n+'px'); };
+$('#tlang').addEventListener('change',()=>{ if(cur&&cur.transcript) buildLyrics(); });
+
+/* ---------- word popup ---------- */
+let wpIdx=-1;
+async function showWord(i){
+  wpIdx=i; const w=flat[i]; const seg=cur.transcript.segments[w.li];
+  $('#wpWord').textContent=w.w; $('#wpCtx').textContent=seg.text; $('#wpMean').innerHTML='<span class="spin"></span>';
+  $('#wpop').showModal();
+  const tl=$('#tlang').value; const k=tl+'|'+w.w.toLowerCase().replace(/[.,!?;:"'()]/g,'');
+  if(cur.meanings[k]){ $('#wpMean').textContent=cur.meanings[k]; return; }
+  if(!key){ $('#wpMean').textContent='뜻을 보려면 설정에서 API 키를 입력하세요.'; return; }
+  try{ const m=await wordMeaning(w.w,seg.text,tl); cur.meanings[k]=m; await DB.put(cur); if(wpIdx===i) $('#wpMean').textContent=m; }
+  catch(e){ if(wpIdx===i) $('#wpMean').textContent='실패: '+(e.message||e); }
+}
+$('#wpClose').onclick=()=>$('#wpop').close();
+$('#wpHere').onclick=()=>{ $('#wpop').close(); if(wpIdx>=0){ seek(flat[wpIdx].s); audio.play(); } };
+
+/* ---------- misc ---------- */
+document.addEventListener('keydown',e=>{ if($('#player').classList.contains('hidden')||e.target.tagName==='INPUT') return; if(e.code==='Space'){ e.preventDefault(); $('#play').click(); } if(e.key==='ArrowLeft') $('#prevL').click(); if(e.key==='ArrowRight') $('#nextL').click(); });
+if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
+window.__lingo={buildTranscript,DB,openPlayer,get cur(){return cur},get flat(){return flat}}; // 테스트용
+loadLib();
+})();
+</script>
+</body>
+</html>
