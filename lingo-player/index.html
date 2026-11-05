@@ -110,8 +110,14 @@ dialog h2{margin:0 0 8px;font-size:18px}
 
 <dialog id="dSet">
   <h2>설정</h2>
-  <label>OpenAI API 키 <span class="muted">(Whisper 음성인식 + 번역)</span></label>
-  <input id="key" type="password" placeholder="sk-…" autocomplete="off">
+  <label>서비스 제공자</label>
+  <select id="prov">
+    <option value="groq">Groq (무료 티어, Whisper large-v3)</option>
+    <option value="openai">OpenAI (유료, whisper-1)</option>
+  </select>
+  <label id="keyLabel">API 키</label>
+  <input id="key" type="password" placeholder="" autocomplete="off">
+  <div id="provHelp" class="muted" style="margin-top:4px;line-height:1.5"></div>
   <div id="keyMsg" class="msg"></div>
   <label>음성 언어 (분석 시 사용)</label>
   <select id="lang">
@@ -136,7 +142,7 @@ dialog h2{margin:0 0 8px;font-size:18px}
     <button id="keyTest">키 테스트</button>
     <button id="setClose" class="pri">닫기</button>
   </div>
-  <p class="muted" style="margin:14px 0 0;line-height:1.5">파일은 이 기기 안에만 저장됩니다. 분석 시 오디오가 OpenAI 서버로 전송되며, 결과는 기기에 저장되어 다시 분석하지 않습니다. Whisper는 25MB 이하 파일만 받습니다.</p>
+  <p class="muted" style="margin:14px 0 0;line-height:1.5">파일은 이 기기 안에만 저장됩니다. 분석 시 오디오가 선택한 서비스(Groq 또는 OpenAI) 서버로 전송되며, 결과는 기기에 저장되어 다시 분석하지 않습니다. Whisper는 25MB 이하 파일만 받습니다.</p>
 </dialog>
 
 <dialog id="dProg">
@@ -191,8 +197,15 @@ const DB={
 let tracks=[], cur=null, flat=[], lineEls=[], wordEls=[], curW=-1, curL=-1, loopOn=false, raf=0, objUrl=null;
 const RATES=[0.5,0.7,0.85,1,1.25];
 const audio=new Audio(); audio.preload='auto';
-let key=LS.get('okey','');
-$('#key').value=LS.get('okey','');
+const PROV={
+  groq:{name:'Groq',base:'https://api.groq.com/openai/v1',stt:'whisper-large-v3',chat:'llama-3.3-70b-versatile',ph:'gsk_…',help:'console.groq.com 에서 구글 계정으로 가입 후 API Keys 메뉴에서 키 생성. 카드 등록 없이 무료 (하루 약 8시간 분량).'},
+  openai:{name:'OpenAI',base:'https://api.openai.com/v1',stt:'whisper-1',chat:'gpt-4o-mini',ph:'sk-…',help:'platform.openai.com 에서 키 생성. 선결제 필요 (Whisper 분당 약 $0.006).'}
+};
+let prov=PROV[LS.get('prov','groq')]?LS.get('prov','groq'):'groq';
+const keyName=()=>prov==='openai'?'okey':'gkey';
+let key=LS.get(keyName(),'');
+function applyProv(){ const P=PROV[prov]; $('#prov').value=prov; $('#key').value=LS.get(keyName(),''); $('#key').placeholder=P.ph; $('#keyLabel').textContent=P.name+' API 키'; $('#provHelp').textContent=P.help; $('#keyMsg').textContent=''; key=LS.get(keyName(),''); }
+applyProv();
 $('#lang').value=LS.get('lang',''); $('#tlang').value=LS.get('tlang','ko');
 document.documentElement.style.setProperty('--fs',LS.get('fs','20')+'px');
 if(LS.get('notr','0')==='1'){ document.body.classList.add('notr'); $('#trToggle').classList.remove('on'); }
@@ -236,29 +249,30 @@ $('#dtReset').onclick=async()=>{ dlgTrack.transcript=null; dlgTrack.translations
 /* ---------- settings ---------- */
 $('#btnSet').onclick=()=>$('#dSet').showModal();
 $('#setClose').onclick=()=>$('#dSet').close();
-$('#key').onchange=()=>{ LS.set('okey',$('#key').value.trim()); key=$('#key').value.trim(); $('#keyMsg').textContent=''; };
+$('#key').onchange=()=>{ LS.set(keyName(),$('#key').value.trim()); key=$('#key').value.trim(); $('#keyMsg').textContent=''; };
+$('#prov').onchange=()=>{ prov=$('#prov').value; LS.set('prov',prov); applyProv(); };
 $('#lang').onchange=()=>LS.set('lang',$('#lang').value);
 $('#tlang').onchange=()=>LS.set('tlang',$('#tlang').value);
 $('#keyTest').onclick=async()=>{ $('#key').onchange(); const m=$('#keyMsg'); m.classList.remove('err'); if(!key){ m.classList.add('err'); m.textContent='키를 입력하세요.'; return; } m.textContent='확인 중…';
-  try{ const r=await fetch('https://api.openai.com/v1/models/whisper-1',{headers:{Authorization:'Bearer '+key}}); if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401?' (키가 올바르지 않음)':'')); m.textContent='OK: whisper-1 사용 가능'; }
+  try{ const P=PROV[prov]; const r=await fetch(P.base+'/models/'+P.stt,{headers:{Authorization:'Bearer '+key}}); if(!r.ok) throw new Error('HTTP '+r.status+(r.status===401?' (키가 올바르지 않음)':'')); m.textContent='OK ('+P.name+'): '+P.stt+' 사용 가능'; }
   catch(e){ m.classList.add('err'); m.textContent='실패: '+(e.message||e); } };
 
-/* ---------- OpenAI calls ---------- */
-function needKey(){ if(!key){ $('#dSet').showModal(); $('#keyMsg').classList.add('err'); $('#keyMsg').textContent='먼저 OpenAI API 키를 입력하세요.'; throw new Error('no key'); } }
+/* ---------- API calls (OpenAI 호환: OpenAI / Groq) ---------- */
+function needKey(){ if(!key){ $('#dSet').showModal(); $('#keyMsg').classList.add('err'); $('#keyMsg').textContent='먼저 '+PROV[prov].name+' API 키를 입력하세요.'; throw new Error('no key'); } }
 async function apiErr(r){ let d=''; try{ const j=await r.json(); d=j.error&&j.error.message||''; }catch(e){} return new Error('HTTP '+r.status+(d?': '+d:'')); }
 
 async function transcribe(t,signal){
   needKey();
-  if(t.size>25*1048576) throw new Error('파일이 25MB를 넘습니다. Whisper는 25MB 이하만 받습니다. 더 작은 파일(낮은 비트레이트)로 변환해 주세요.');
+  if(t.size>25*1048576) throw new Error('파일이 25MB를 넘습니다. 무료 Whisper API는 25MB 이하만 받습니다. 더 작은 파일(낮은 비트레이트)로 변환해 주세요.');
   const fd=new FormData();
   const ext=(t.type.split('/')[1]||'mp3').replace('mpeg','mp3').replace('x-m4a','m4a');
   fd.append('file',t.blob,'audio.'+ext);
-  fd.append('model','whisper-1');
+  fd.append('model',PROV[prov].stt);
   fd.append('response_format','verbose_json');
   fd.append('timestamp_granularities[]','word');
   fd.append('timestamp_granularities[]','segment');
   const lang=$('#lang').value; if(lang) fd.append('language',lang);
-  const r=await fetch('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd,signal});
+  const r=await fetch(PROV[prov].base+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd,signal});
   if(!r.ok) throw await apiErr(r);
   const j=await r.json();
   return buildTranscript(j);
@@ -285,8 +299,8 @@ function buildTranscript(j){
 
 async function chat(messages,signal){
   needKey();
-  const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},signal,
-    body:JSON.stringify({model:'gpt-4o-mini',temperature:0.2,response_format:{type:'json_object'},messages})});
+  const r=await fetch(PROV[prov].base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},signal,
+    body:JSON.stringify({model:PROV[prov].chat,temperature:0.2,response_format:{type:'json_object'},messages})});
   if(!r.ok) throw await apiErr(r);
   const j=await r.json(); return JSON.parse(j.choices[0].message.content);
 }
