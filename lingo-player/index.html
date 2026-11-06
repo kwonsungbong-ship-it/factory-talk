@@ -330,19 +330,24 @@ async function transcribe(t,signal){
   // 이중 언어: 두 번째 언어로 한 번 더 인식한 뒤 구간별로 신뢰도(avg_logprob) 높은 쪽 선택
   $('#progMsg').textContent='두 번째 언어('+(LANGN[lang2]||lang2)+')로 인식 중…';
   const b=await whisperPass(t,lang2,signal);
-  return mergeBilingual(a,b);
+  return mergeBilingual(a,b,lang||a.language,lang2);
 }
-function mergeBilingual(a,b){
+// 언어별 문자 체계 판정: 그 언어로 "실제로 받아쓴" 문장인지 (강제 언어 패스가 다른 언어를 번역해 낸 경우 걸러내는 보조 신호)
+const SCRIPT={ko:/[\uac00-\ud7a3]/,ja:/[\u3040-\u30ff\u4e00-\u9fff]/,zh:/[\u4e00-\u9fff]/,vi:/[a-zA-Z\u00c0-\u1ef9]/,en:/[a-zA-Z]/,es:/[a-zA-Z]/,fr:/[a-zA-Z]/};
+function mergeBilingual(a,b,langA,langB){
   const A=a.segments.map(s=>({...s,src:0})), B=b.segments.map(s=>({...s,src:1}));
+  // 각 패스 안에서 신뢰도를 중앙값 기준 상대값으로 바꾼다: 언어마다 토큰 확률 수준이 달라(한국어가 대체로 낮음)
+  // 절대값 비교는 한쪽 언어를 편애한다. 한 패스 안에서는 '진짜 받아쓴 구간'이 '번역해 낸 구간'보다 높게 나온다.
+  const norm=arr=>{ const v=arr.map(x=>x.lp??-1).sort((p,q)=>p-q); const med=v.length?v[v.length>>1]:-1; arr.forEach(x=>{ x.c=(x.lp??-1)-med; if(SCRIPT[x.src?langB:langA]&&!SCRIPT[x.src?langB:langA].test(x.text)) x.c-=1; }); };
+  norm(A); norm(B);
   const ov=(x,y)=>Math.max(0,Math.min(x.e,y.e)-Math.max(x.s,y.s));
-  // 상대 쪽에서 겹치는 구간의 가중 평균 신뢰도와 비교
-  const rival=(x,other)=>{ let w=0,sum=0; for(const y of other){ const o=ov(x,y); if(o>0){ w+=o; sum+=o*(y.lp??-1); } } return w>0?sum/w:-Infinity; };
-  let keep=[...A.filter(x=>(x.lp??-1)>=rival(x,B)-0.05), ...B.filter(x=>(x.lp??-1)>rival(x,A)+0.05)];
+  const rival=(x,other)=>{ let w=0,sum=0; for(const y of other){ const o=ov(x,y); if(o>0){ w+=o; sum+=o*y.c; } } return w>0?sum/w:-Infinity; };
+  let keep=[...A.filter(x=>x.c>=rival(x,B)), ...B.filter(x=>x.c>rival(x,A))];
   keep.sort((x,y)=>x.s-y.s||x.src-y.src);
-  // 양쪽 다 남은 구간 정리: 60% 이상 겹치면 신뢰도 높은 쪽만
+  // 양쪽 다 남은 구간 정리: 60% 이상 겹치면 상대 신뢰도 높은 쪽만
   const out=[];
-  for(const x of keep){ const d=x.e-x.s||0.01; const i=out.findIndex(y=>ov(x,y)>0.6*Math.min(d,(y.e-y.s)||0.01)); if(i<0) out.push(x); else if((x.lp??-1)>(out[i].lp??-1)) out[i]=x; }
-  return {language:a.language+'+'+b.language,segments:out.map(({src,...s})=>s),text:out.map(s=>s.text).join(' ')};
+  for(const x of keep){ const d=x.e-x.s||0.01; const i=out.findIndex(y=>ov(x,y)>0.6*Math.min(d,(y.e-y.s)||0.01)); if(i<0) out.push(x); else if(x.c>out[i].c) out[i]=x; }
+  return {language:a.language+'+'+b.language,segments:out.map(({src,c,...s})=>s),text:out.map(s=>s.text).join(' ')};
 }
 async function whisperPass(t,lang,signal){
   if(t.size>24*1048576){
@@ -572,7 +577,7 @@ const MS={
   state(st){ if(!this.on) return; try{ if(NMS) NMS.setPlaybackState({playbackState:st}); else WMS.playbackState=st; }catch(e){} },
   pos(){ if(!this.on||!isFinite(audio.duration)) return; const o={duration:audio.duration,playbackRate:audio.playbackRate,position:Math.min(audio.currentTime,audio.duration)}; try{ if(NMS) NMS.setPositionState(o); else WMS.setPositionState(o); }catch(e){} },
   handlers(){ if(!this.on||this._h) return; this._h=true;
-    const H={play:()=>audio.play(),pause:()=>audio.pause(),stop:()=>{ audio.pause(); seek(0); },
+    const H={play:()=>{ STEP.mark('잠금화면 재생'); audio.play(); },pause:()=>{ STEP.mark('잠금화면 일시정지'); userPause=true; audio.pause(); },stop:()=>{ userPause=true; audio.pause(); seek(0); },
       previoustrack:()=>$('#prevL').click(),nexttrack:()=>$('#nextL').click(),
       seekbackward:d=>seek(audio.currentTime-((d&&d.seekOffset)||5)),seekforward:d=>seek(audio.currentTime+((d&&d.seekOffset)||5)),
       seekto:d=>{ if(d&&d.seekTime!=null) seek(d.seekTime); }};
@@ -636,14 +641,18 @@ function tick(force){
 function setLine(li){ if(li===curL) return; if(curL>=0&&lineEls[curL]) lineEls[curL].classList.remove('cur'); curL=li; updateLockText(); const p=lineEls[li]; if(!p) return; p.classList.add('cur');
   const L=$('#lyrics'); const top=p.offsetTop-L.clientHeight*0.35; L.scrollTo({top:Math.max(0,top),behavior:'smooth'}); }
 audio.onplay=()=>{ $('#play').textContent='❚❚'; cancelAnimationFrame(raf); tick(false); MS.state('playing'); MS.pos(); };
-audio.onpause=()=>{ $('#play').textContent='▶'; cancelAnimationFrame(raf); tick(true); MS.state('paused'); MS.pos(); };
-audio.onended=()=>{ $('#play').textContent='▶'; MS.state('paused'); };
+let userPause=false;
+audio.onpause=()=>{ STEP.mark('일시정지 '+fmt(audio.currentTime)+'/'+fmt(audio.duration)+(userPause?' (사용자)':' (시스템/기타)')+(document.hidden?' 백그라운드':'')+(audio.error?' 오류:'+audio.error.code:'')); userPause=false; $('#play').textContent='▶'; cancelAnimationFrame(raf); tick(true); MS.state('paused'); MS.pos(); };
+audio.onended=()=>{ STEP.mark('재생 끝'); $('#play').textContent='▶'; MS.state('paused'); };
+audio.onerror=()=>STEP.mark('오디오 오류 code='+(audio.error&&audio.error.code)+' '+(audio.error&&audio.error.message||''));
+audio.onstalled=()=>STEP.mark('오디오 stalled '+fmt(audio.currentTime));
+audio.onwaiting=()=>STEP.mark('오디오 버퍼 대기 '+fmt(audio.currentTime));
 audio.onratechange=()=>MS.pos();
 audio.onseeked=()=>MS.pos();
 audio.onloadedmetadata=()=>{ $('#tDur').textContent=fmt(audio.duration); if(cur&&!cur.duration&&isFinite(audio.duration)){ cur.duration=audio.duration; DB.put(cur).then(loadLib); } };
 audio.ontimeupdate=()=>{ if(audio.paused||document.hidden) tick(false); };
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&!audio.paused){ cancelAnimationFrame(raf); tick(true); } });
-$('#play').onclick=()=>audio.paused?audio.play():audio.pause();
+$('#play').onclick=()=>{ if(audio.paused){ STEP.mark('재생 '+fmt(audio.currentTime)); audio.play(); } else { userPause=true; audio.pause(); } };
 $('#bar').oninput=()=>{ if(audio.duration) seek(audio.duration*$('#bar').value/1000); };
 $('#back5').onclick=()=>seek(audio.currentTime-5);
 $('#fwd5').onclick=()=>seek(audio.currentTime+5);
