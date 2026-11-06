@@ -24,6 +24,7 @@ jobs:
         run: |
           mkdir -p www
           cp index.html stt-worker.js manifest.json sw.js icon-*.png www/
+          sed -i "s|__APP_VERSION__|lingo-v1.0.${{ github.run_number }}|" www/index.html
           if [ -n "$GROQ_API_KEY" ]; then
             sed -i "s|__GROQ_KEY__|$GROQ_API_KEY|" www/index.html && echo "builtin Groq key: set"
           else

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#101820">
+<meta name="app-version" content="__APP_VERSION__">
 <title>Lingo Player</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -134,6 +135,7 @@ dialog h2{margin:0 0 8px;font-size:18px}
   <input id="key" type="password" placeholder="" autocomplete="off">
   <div id="provHelp" class="muted" style="margin-top:4px;line-height:1.5"></div>
   <div id="keyMsg" class="msg"></div>
+  <textarea id="diag" rows="6" class="hidden" readonly style="font-size:12px;margin-top:8px"></textarea>
   <label>음성 언어 (분석 시 사용)</label>
   <select id="lang">
     <option value="">자동 감지</option>
@@ -165,6 +167,7 @@ dialog h2{margin:0 0 8px;font-size:18px}
     <option value="ja">日本語</option>
   </select>
   <div class="dlg-actions">
+    <button id="diagBtn">진단 정보</button>
     <button id="keyTest">키 테스트</button>
     <button id="setClose" class="pri">닫기</button>
   </div>
@@ -247,11 +250,15 @@ function applyEngine(){ $('#localBox').classList.toggle('hidden',engine!=='local
   if(big) info+=' 큰 모델은 메모리 부족으로 앱이 강제 종료될 수 있습니다'+(MEM?' (이 기기 메모리 약 '+MEM+'GB 이상)':'')+'. 꺼지면 다음 실행 때 자동으로 작은 모델로 바뀝니다.';
   $('#gpuInfo').textContent=info; }
 // 기기 내 분석 도중 앱이 강제 종료된 경우 감지 (메모리 부족): 다음 실행 때 안내 + 작은 모델로 전환
+const STEP={ log:[], mark(t){ const line=new Date().toISOString().slice(11,19)+' '+t; this.log.push(line); if(this.log.length>40) this.log.shift(); LS.set('stepLog',this.log.join('\n')); } };
+function diagText(){ return ['앱 버전: '+(document.querySelector('meta[name=app-version]')||{}).content,'엔진: '+engine+' / 모델: '+$('#lmodel').value.split('/').pop(),'WebGPU: '+hasGPU+' / 메모리(GB): '+(navigator.deviceMemory||'?')+' / 코어: '+(navigator.hardwareConcurrency||'?'),'UA: '+navigator.userAgent,'마지막 강제 종료: '+LS.get('lastCrash','없음'),'--- 최근 단계 ---',LS.get('stepLog','')].join('\n'); }
+$('#diagBtn').onclick=()=>{ const d=$('#diag'); d.classList.toggle('hidden'); d.value=diagText(); if(!d.classList.contains('hidden')){ d.focus(); d.select(); try{ navigator.clipboard&&navigator.clipboard.writeText(d.value); }catch(e){} } };
 (function crashGuard(){ const m=LS.get('localRunning',''); if(!m) return; LS.set('localRunning','');
+  const last=(LS.get('stepLog','').split('\n').pop()||'').replace(/^\S+ /,''); LS.set('lastCrash',new Date().toLocaleString()+' / '+m.split('/').pop()+' / 단계: '+last);
   const order=['onnx-community/whisper-large-v3-turbo_timestamped','onnx-community/whisper-medium_timestamped','onnx-community/whisper-small_timestamped','onnx-community/whisper-base_timestamped'];
   const i=order.indexOf(m); const next=i>=0&&i<order.length-1?order[i+1]:'';
   if(next){ LS.set('lmodel',next); $('#lmodel').value=next; }
-  setTimeout(()=>alert('지난번 기기 내 분석 중 앱이 종료됐습니다. 메모리 부족으로 보입니다.'+(next?' 모델을 '+$('#lmodel').selectedOptions[0].textContent.split(' (')[0]+'(으)로 낮췄습니다. 다시 분석해 보세요.':' 클라우드(Groq) 엔진 사용을 권장합니다.')),300);
+  setTimeout(()=>alert('지난번 기기 내 분석 중 앱이 종료됐습니다 (마지막 단계: '+last+'). 메모리 부족으로 보입니다.'+(next?' 모델을 '+$('#lmodel').selectedOptions[0].textContent.split(' (')[0]+'(으)로 낮췄습니다. 다시 분석해 보세요.':' 클라우드(Groq) 엔진 사용을 권장합니다.')),300);
 })();
 applyEngine();
 $('#engine').onchange=()=>{ engine=$('#engine').value; LS.set('engine',engine); applyEngine(); };
@@ -407,15 +414,16 @@ async function decodeTo16k(blob){
   return out;
 }
 async function transcribeLocal(t,signal){
-  $('#progMsg').textContent='오디오 디코딩 중…';
+  STEP.log=[]; STEP.mark('기기 내 분석 시작 '+t.name+' '+fmtSize(t.size)); $('#progMsg').textContent='오디오 디코딩 중…';
   let audio; try{ audio=await decodeTo16k(t.blob); }catch(e){ throw new Error('오디오를 디코딩할 수 없습니다: '+(e.message||e)); }
   if(signal.aborted) throw Object.assign(new Error('abort'),{name:'AbortError'});
   let model=$('#lmodel').value; const big=/large|medium/.test(model);
   if(audio.length>16000*60*30) throw new Error('30분이 넘는 파일은 기기 내 분석이 어렵습니다. 클라우드 엔진을 쓰거나 파일을 나눠 주세요.');
+  STEP.mark('디코딩 완료 '+(audio.length/16000|0)+'초, 모델 '+model.split('/').pop()+(hasGPU?' GPU':' CPU'));
   LS.set('localRunning',model); // 분석 중 강제 종료 감지용
   try{
     if(hasGPU){
-      try{ return await runWorker(model,'webgpu',big?{encoder_model:'fp16',decoder_model_merged:'q4'}:'fp32',audio.slice(0),signal); }
+      try{ return await runWorker(model,'webgpu',{encoder_model:'fp16',decoder_model_merged:'q4f16'},audio.slice(0),signal); }
       catch(e){ if(e.name==='AbortError'||!/webgpu|gpu|adapter/i.test(e.message||'')) throw e; hasGPU=false; applyEngine(); $('#progMsg').textContent='GPU 사용 불가, CPU로 전환…'; }
     }
     if(big){ model='onnx-community/whisper-small_timestamped'; LS.set('lmodel',model); $('#lmodel').value=model; $('#progMsg').textContent='CPU에서는 큰 모델을 쓸 수 없어 small로 전환…'; }
@@ -430,13 +438,13 @@ function runWorker(model,device,dtype,audio,signal){
     signal.addEventListener('abort',onAbort,{once:true});
     worker.onerror=e=>{ signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); try{ worker.terminate(); }catch(x){} worker=null; rej(new Error('기기 내 인식 오류: '+(e.message||'워커 로드 실패 (인터넷 연결 후 다시 시도)'))); };
     worker.onmessage=e=>{ const m=e.data;
-      if(m.type==='progress'){ $('#progBar').classList.remove('hidden'); $('#progBar').value=m.total?Math.round(m.loaded/m.total*100):0; $('#progMsg').textContent='모델 다운로드 중 '+(m.total?(m.loaded/1048576|0)+' / '+(m.total/1048576|0)+' MB':'')+' (처음 한 번만)'; }
-      else if(m.type==='ready'){ $('#progBar').classList.add('hidden'); $('#progMsg').textContent='모델 준비 완료, 인식 시작…'; }
-      else if(m.type==='status'){ $('#progMsg').textContent=m.text+(device==='wasm'?' (CPU, 느릴 수 있음)':''); }
-      else if(m.type==='done'&&m.id===id){ signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); const tr=buildTranscript({language:$('#lang').value,text:m.text,words:m.words}); res(tr); }
+      if(m.type==='progress'){ if(m.total&&(m.loaded/m.total*10|0)!==(runWorker._p||0)){ runWorker._p=m.loaded/m.total*10|0; STEP.mark('모델 다운로드 '+(m.loaded/1048576|0)+'/'+(m.total/1048576|0)+'MB '+(m.file||'')); } $('#progBar').classList.remove('hidden'); $('#progBar').value=m.total?Math.round(m.loaded/m.total*100):0; $('#progMsg').textContent='모델 다운로드 중 '+(m.total?(m.loaded/1048576|0)+' / '+(m.total/1048576|0)+' MB':'')+' (처음 한 번만)'; }
+      else if(m.type==='ready'){ STEP.mark('모델 로드 완료 ('+device+')'); $('#progBar').classList.add('hidden'); $('#progMsg').textContent='모델 준비 완료, 인식 시작…'; }
+      else if(m.type==='status'){ STEP.mark(m.text); $('#progMsg').textContent=m.text+(device==='wasm'?' (CPU, 느릴 수 있음)':''); }
+      else if(m.type==='done'&&m.id===id){ STEP.mark('인식 완료 '+m.words.length+'단어'); signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); const tr=buildTranscript({language:$('#lang').value,text:m.text,words:m.words}); res(tr); }
       else if(m.type==='error'&&m.id===id){ signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); try{ worker.terminate(); }catch(x){} worker=null; rej(new Error('기기 내 인식 실패: '+m.message)); }
     };
-    $('#progMsg').textContent='모델 확인 중…';
+    STEP.mark('워커 시작 '+device+' '+JSON.stringify(dtype)); $('#progMsg').textContent='모델 확인 중…';
     worker.postMessage({id,model,device,dtype,audio,language:$('#lang').value||''},[audio.buffer]);
   });
 }
