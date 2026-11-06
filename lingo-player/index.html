@@ -147,6 +147,15 @@ dialog h2{margin:0 0 8px;font-size:18px}
   </select>
   <label>단어 힌트 <span class="muted">(선택, 클라우드 인식 시 철자 보정)</span></label>
   <textarea id="hint" rows="2" placeholder="교재 단어, 이름 등을 쉼표로: Hà Nội, phở, Nguyễn"></textarea>
+  <label>두 번째 언어 <span class="muted">(음성에 두 언어가 섞여 있을 때, 클라우드 인식)</span></label>
+  <select id="lang2">
+    <option value="">없음</option>
+    <option value="ko">한국어</option>
+    <option value="vi">베트남어</option>
+    <option value="en">영어</option>
+    <option value="zh">중국어</option>
+    <option value="ja">일본어</option>
+  </select>
   <label>번역 언어</label>
   <select id="tlang">
     <option value="ko">한국어</option>
@@ -226,7 +235,8 @@ const resolveKey=()=>LS.get(keyName(),'')||(prov==='groq'?BUILTIN_GROQ:'');
 let key=resolveKey();
 function applyProv(){ const P=PROV[prov]; $('#prov').value=prov; $('#key').value=LS.get(keyName(),''); $('#key').placeholder=P.ph; $('#keyLabel').textContent=P.name+' API 키'; $('#provHelp').textContent=P.help; $('#keyMsg').textContent=(prov==='groq'&&BUILTIN_GROQ&&!LS.get('gkey',''))?'내장 키 사용 중 (비워 두면 내장 키, 입력하면 그 키 사용)':''; key=resolveKey(); }
 applyProv();
-$('#lang').value=LS.get('lang',''); $('#tlang').value=LS.get('tlang','ko'); $('#hint').value=LS.get('hint','');
+$('#lang').value=LS.get('lang',''); $('#lang2').value=LS.get('lang2',''); $('#tlang').value=LS.get('tlang','ko');
+$('#lang2').onchange=()=>LS.set('lang2',$('#lang2').value); $('#hint').value=LS.get('hint','');
 let engine=LS.get('engine','cloud'); $('#engine').value=engine; $('#lmodel').value=LS.get('lmodel','onnx-community/whisper-large-v3-turbo_timestamped');
 let hasGPU=!!navigator.gpu;
 if(hasGPU){ navigator.gpu.requestAdapter().then(a=>{ hasGPU=!!a; applyEngine(); }).catch(()=>{ hasGPU=false; applyEngine(); }); }
@@ -246,7 +256,7 @@ function renderLib(){
   for(const t of tracks){
     const el=document.createElement('div'); el.className='track';
     const n=t.transcript?t.transcript.segments.length:0;
-    el.innerHTML=`<div class="info"><div class="name"></div><div class="sub">${t.duration?fmt(t.duration)+' · ':''}${fmtSize(t.size)}${t.transcript?' · '+n+'문장'+(t.transcript.language?' · '+(LANGN[t.transcript.language]||t.transcript.language):''):''}</div></div>
+    el.innerHTML=`<div class="info"><div class="name"></div><div class="sub">${t.duration?fmt(t.duration)+' · ':''}${fmtSize(t.size)}${t.transcript?' · '+n+'문장'+(t.transcript.language?' · '+t.transcript.language.split('+').map(l=>LANGN[l]||l).join('+'):''):''}</div></div>
       <span class="badge ${t.transcript?'ok':''}">${t.transcript?'싱크 완료':'미분석'}</span><button class="icon ghost more" title="관리">⋯</button>`;
     el.querySelector('.name').textContent=t.name;
     el.querySelector('.more').onclick=e=>{ e.stopPropagation(); openTrackDlg(t); };
@@ -292,6 +302,27 @@ async function apiErr(r){ let d=''; try{ const j=await r.json(); d=j.error&&j.er
 async function transcribe(t,signal){
   needKey();
   if(t.size>25*1048576) throw new Error('파일이 25MB를 넘습니다. 무료 Whisper API는 25MB 이하만 받습니다. 더 작은 파일(낮은 비트레이트)로 변환해 주세요.');
+  const lang=$('#lang').value, lang2=$('#lang2').value;
+  const a=await whisperPass(t,lang,signal);
+  if(!lang2||lang2===lang) return a;
+  // 이중 언어: 두 번째 언어로 한 번 더 인식한 뒤 구간별로 신뢰도(avg_logprob) 높은 쪽 선택
+  $('#progMsg').textContent='두 번째 언어('+(LANGN[lang2]||lang2)+')로 인식 중…';
+  const b=await whisperPass(t,lang2,signal);
+  return mergeBilingual(a,b);
+}
+function mergeBilingual(a,b){
+  const A=a.segments.map(s=>({...s,src:0})), B=b.segments.map(s=>({...s,src:1}));
+  const ov=(x,y)=>Math.max(0,Math.min(x.e,y.e)-Math.max(x.s,y.s));
+  // 상대 쪽에서 겹치는 구간의 가중 평균 신뢰도와 비교
+  const rival=(x,other)=>{ let w=0,sum=0; for(const y of other){ const o=ov(x,y); if(o>0){ w+=o; sum+=o*(y.lp??-1); } } return w>0?sum/w:-Infinity; };
+  let keep=[...A.filter(x=>(x.lp??-1)>=rival(x,B)-0.05), ...B.filter(x=>(x.lp??-1)>rival(x,A)+0.05)];
+  keep.sort((x,y)=>x.s-y.s||x.src-y.src);
+  // 양쪽 다 남은 구간 정리: 60% 이상 겹치면 신뢰도 높은 쪽만
+  const out=[];
+  for(const x of keep){ const d=x.e-x.s||0.01; const i=out.findIndex(y=>ov(x,y)>0.6*Math.min(d,(y.e-y.s)||0.01)); if(i<0) out.push(x); else if((x.lp??-1)>(out[i].lp??-1)) out[i]=x; }
+  return {language:a.language+'+'+b.language,segments:out.map(({src,...s})=>s),text:out.map(s=>s.text).join(' ')};
+}
+async function whisperPass(t,lang,signal){
   const fd=new FormData();
   const ext=(t.type.split('/')[1]||'mp3').replace('mpeg','mp3').replace('x-m4a','m4a');
   fd.append('file',t.blob,'audio.'+ext);
@@ -299,7 +330,7 @@ async function transcribe(t,signal){
   fd.append('response_format','verbose_json');
   fd.append('timestamp_granularities[]','word');
   fd.append('timestamp_granularities[]','segment');
-  const lang=$('#lang').value; if(lang) fd.append('language',lang);
+  if(lang) fd.append('language',lang);
   const hint=$('#hint').value.trim(); if(hint) fd.append('prompt',hint.slice(0,800));
   const r=await fetch(PROV[prov].base+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd,signal});
   if(!r.ok) throw await apiErr(r);
@@ -309,7 +340,7 @@ async function transcribe(t,signal){
 // Whisper는 단어 배열과 문장(segment) 배열을 따로 주므로 시간 기준으로 합친다.
 function buildTranscript(j){
   const words=(j.words||[]).map(w=>({w:String(w.word).trim(),s:+w.start,e:+w.end})).filter(w=>w.w);
-  let segs=(j.segments||[]).map(s=>({s:+s.start,e:+s.end,text:String(s.text||'').trim(),words:[]}));
+  let segs=(j.segments||[]).map(s=>({s:+s.start,e:+s.end,text:String(s.text||'').trim(),words:[],lp:(typeof s.avg_logprob==='number')?s.avg_logprob:undefined}));
   if(!segs.length){ // segment 없이 단어만 온 경우: 문장부호/간격으로 끊기
     let c=null;
     for(const w of words){ if(!c||w.s-c.e>1.0||c.words.length>=14||/[.!?。！？]$/.test(c.words[c.words.length-1].w)){ c={s:w.s,e:w.e,text:'',words:[]}; segs.push(c);} c.words.push(w); c.e=Math.max(c.e,w.e); }
@@ -339,7 +370,7 @@ async function translateAll(t,tl,signal){
   const CH=60;
   for(let i=0;i<lines.length;i+=CH){
     const part=lines.slice(i,i+CH);
-    const j=await chat([{role:'system',content:`Translate each line of these song/lesson lyrics into ${TLN[tl]||tl} for a language learner. Keep line count identical and order the same. Return JSON {"lines":[...]} with exactly ${part.length} strings.`},{role:'user',content:JSON.stringify(part)}],signal);
+    const j=await chat([{role:'system',content:`Translate each line of these song/lesson lyrics into ${TLN[tl]||tl} for a language learner. Keep line count identical and order the same. If a line is already written in ${TLN[tl]||tl}, output an empty string for it. Return JSON {"lines":[...]} with exactly ${part.length} strings.`},{role:'user',content:JSON.stringify(part)}],signal);
     const arr=Array.isArray(j.lines)?j.lines:[];
     for(let k=0;k<part.length;k++) out[i+k]=String(arr[k]||'');
   }
