@@ -228,7 +228,7 @@ let tracks=[], cur=null, flat=[], lineEls=[], wordEls=[], curW=-1, curL=-1, loop
 const RATES=[0.5,0.7,0.85,1,1.25];
 const audio=new Audio(); audio.preload='auto';
 const PROV={
-  groq:{name:'Groq',base:'https://api.groq.com/openai/v1',stt:'whisper-large-v3',chat:['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b'],judge:['qwen/qwen3.8-27b','openai/gpt-oss-120b','openai/gpt-oss-20b'],ph:'gsk_…',help:'console.groq.com 에서 구글 계정으로 가입 후 API Keys 메뉴에서 키 생성. 카드 등록 없이 무료 (하루 약 8시간 분량).'},
+  groq:{name:'Groq',base:'https://api.groq.com/openai/v1',stt:'whisper-large-v3',chat:['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b'],judge:['openai/gpt-oss-120b','openai/gpt-oss-20b','qwen/qwen3.8-27b'],ph:'gsk_…',help:'console.groq.com 에서 구글 계정으로 가입 후 API Keys 메뉴에서 키 생성. 카드 등록 없이 무료 (하루 약 8시간 분량).'},
   openai:{name:'OpenAI',base:'https://api.openai.com/v1',stt:'whisper-1',chat:['gpt-4o-mini'],judge:['gpt-4o-mini'],ph:'sk-…',help:'platform.openai.com 에서 키 생성. 선결제 필요 (Whisper 분당 약 $0.006).'}
 };
 let prov=PROV[LS.get('prov','groq')]?LS.get('prov','groq'):'groq';
@@ -350,15 +350,17 @@ async function mergeBilingual(a,b,langA,langB,signal){
   for(const it of both){ const okA=!SCRIPT[langA]||SCRIPT[langA].test(it.A), okB=!SCRIPT[langB]||SCRIPT[langB].test(it.B); choice[it.i]=okA&&!okB?'A':(!okA&&okB?'B':'A'); }
   const LN={ko:'Korean',vi:'Vietnamese',en:'English',zh:'Chinese',ja:'Japanese',es:'Spanish',fr:'French'};
   const nA=LN[langA]||langA||'the first language', nB=LN[langB]||langB;
-  for(let i=0;i<both.length;i+=50){
-    const part=both.slice(i,i+50);
-    $('#progMsg').textContent='언어 구간 판정 중… ('+Math.min(i+50,both.length)+'/'+both.length+')';
+  let judged=0;
+  for(let i=0;i<both.length;i+=30){
+    const part=both.slice(i,i+30);
+    $('#progMsg').textContent='언어 구간 판정 중… ('+Math.min(i+30,both.length)+'/'+both.length+')';
     try{
-      const j=await chat([{role:'system',content:`Audio from a ${nA} lesson for ${nB} speakers was transcribed twice with Whisper: once forced to ${nA} (A) and once forced to ${nB} (B). The speech switches between the two languages; often a ${nA} phrase is followed by its ${nB} meaning. For each item exactly one transcript is the faithful transcription in the language actually spoken; the other is Whisper's forced output in the wrong language, which looks like phonetic nonsense or an unnatural translation. Pick the genuine one. Return only JSON {"choices":["A"|"B",...]} with exactly ${part.length} entries in the same order.`},{role:'user',content:JSON.stringify(part.map(x=>({i:x.i,A:x.A,B:x.B})))}],signal,PROV[prov].judge);
-      const arr=Array.isArray(j.choices)?j.choices:[];
-      if(arr.length===part.length) part.forEach((it,k)=>{ const v=String(arr[k]).toUpperCase(); if(v==='A'||v==='B') choice[it.i]=v; });
+      const j=await chat([{role:'system',content:`You are checking Whisper transcripts of a ${nA} lesson for ${nB} speakers. Each item has two transcripts of the SAME short utterance: A = Whisper forced to ${nA}, B = Whisper forced to ${nB}. Only one language was actually spoken in each utterance. When Whisper is forced to the wrong language it produces phonetic gibberish (the other language's sounds rendered as meaningless ${nA} syllables or meaningless ${nB} syllables). Procedure for each item: (1) Is A a real, meaningful ${nA} word or phrase? (2) Is B a real, meaningful ${nB} word or phrase? (3) Choose the one that is real; if both look real, prefer the one that fits the lesson pattern (a ${nA} item is usually followed by its ${nB} meaning); if neither looks real, pick the less broken one. Return only JSON {"r":[{"i":<item i>,"c":"A"|"B"},...]} with one entry per item, no commentary.`},{role:'user',content:JSON.stringify(part.map(x=>({i:x.i,A:x.A,B:x.B})))}],signal,PROV[prov].judge,0);
+      const arr=Array.isArray(j.r)?j.r:(Array.isArray(j.choices)?j.choices.map((c,k)=>({i:part[k]&&part[k].i,c})):[]);
+      for(const x of arr){ const v=String(x.c||'').toUpperCase(); if((v==='A'||v==='B')&&choice[x.i]!==undefined&&both.some(it=>it.i===x.i)){ choice[x.i]=v; judged++; } }
     }catch(e){ if(e.name==='AbortError') throw e; console.warn('judge',e); STEP.mark('언어 판정 실패: '+(e.message||e)); }
   }
+  STEP.mark('언어 판정 '+judged+'/'+both.length+' (발화 '+cl.length+')');
   // 발화 → 줄: 같은 언어가 이어지고 간격이 짧으면 한 줄로 합친다 (최대 12단어)
   const segs=[];
   for(let i=0;i<cl.length;i++){ const c=cl[i]; const pick=c.A.length&&c.B.length?choice[i]:(c.A.length?'A':'B'); const ws=pick==='A'?c.A:c.B; if(!ws.length) continue;
@@ -366,7 +368,7 @@ async function mergeBilingual(a,b,langA,langB,signal){
     if(last&&last.pick===pick&&c.s-last.e<0.7&&last.words.length+ws.length<=12){ last.words.push(...ws); last.e=Math.max(last.e,c.e); }
     else segs.push({s:c.s,e:c.e,pick,words:[...ws]}); }
   const out=segs.map(x=>({s:x.s,e:x.e,text:text(x.words),words:x.words.map(({src,...w})=>w)}));
-  return {language:(a.language||langA)+'+'+(b.language||langB),segments:out,text:out.map(x=>x.text).join(' ')};
+  return {language:(a.language||langA)+'+'+(b.language||langB),segments:out,text:out.map(x=>x.text).join(' '),judged,judgeTotal:both.length};
 }
 async function whisperPass(t,lang,signal){
   if(t.size>24*1048576){
@@ -429,20 +431,22 @@ function buildTranscript(j){
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 // 채팅 모델 호출: 모델이 사라졌으면(404/model_not_found) 다음 후보, JSON 강제가 실패하면 자유 출력에서 JSON 추출, 429는 잠시 후 재시도
-async function chat(messages,signal,models){
+async function chat(messages,signal,models,temperature){
   needKey();
   const list=models||PROV[prov].chat; let lastErr=null;
   for(const model of list){
-    for(let attempt=0;attempt<3;attempt++){
-      const json=attempt<2; // 3번째 시도는 response_format 없이
-      const body={model,temperature:0.2,messages}; if(json) body.response_format={type:'json_object'};
+    const oss=/gpt-oss/.test(model); // gpt-oss는 json_object 강제 시 추론이 깨져 품질이 떨어짐 → 자유 출력에서 JSON 추출, 추론 낮춤
+    for(let attempt=0;attempt<4;attempt++){
+      const json=!oss&&attempt<2; // 마지막 시도들은 response_format 없이
+      const body={model,temperature:temperature==null?0.2:temperature,messages}; if(json) body.response_format={type:'json_object'}; if(oss) body.reasoning_effort='low';
       const r=await fetch(PROV[prov].base+'/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},signal,body:JSON.stringify(body)});
       if(r.ok){ const j=await r.json(); const c=(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||''; const m=c.match(/\{[\s\S]*\}/); if(!m){ lastErr=new Error('응답에 JSON 없음'); continue; } try{ return JSON.parse(m[0]); }catch(e){ lastErr=e; continue; } }
       let d={}; try{ d=(await r.json()).error||{}; }catch(e){}
       const code=d.code||'', msg=d.message||'';
       if(r.status===404||/model_not_found|decommissioned|does not exist/i.test(code+' '+msg)){ lastErr=new Error(model+' 사용 불가'); break; } // 다음 모델
-      if(r.status===429){ lastErr=new Error('요청 한도 초과 (429)'); await sleep(attempt?12000:5000); continue; }
-      if(/json_validate_failed/i.test(code)){ lastErr=new Error('JSON 형식 실패'); attempt=1; continue; } // 다음 시도는 자유 출력
+      if(r.status===429){ const m=/try again in (?:(\d+)m)?([\d.]+)s/i.exec(msg); const wait=m?Math.min(90000,((+m[1]||0)*60+(+m[2]||0))*1000+1000):(attempt?15000:6000); lastErr=new Error('요청 한도 초과 (429)'); STEP.mark('429 대기 '+(wait/1000|0)+'초 '+model); await sleep(wait); continue; }
+      if(r.status>=500){ lastErr=new Error('HTTP '+r.status+' '+model); await sleep(3000); if(attempt>=1) break; continue; } // 2회 실패하면 다음 모델
+      if(/json_validate_failed/i.test(code)){ lastErr=new Error('JSON 형식 실패'); attempt=Math.max(attempt,1); continue; } // 다음 시도는 자유 출력
       throw new Error('HTTP '+r.status+(msg?': '+msg:''));
     }
   }
@@ -657,6 +661,8 @@ function buildLyrics(){
   const L=$('#lyrics'); L.innerHTML=''; flat=[]; lineEls=[]; wordEls=[]; curW=-1; curL=-1;
   if(!cur.transcript){ L.innerHTML='<div class="empty">아직 단어 싱크가 없습니다.<br>오른쪽 위 <b>분석</b> 버튼을 누르면 Whisper로 단어 타이밍을 뽑습니다.</div>'; $('#btnAnalyze').textContent='분석'; return; }
   $('#btnAnalyze').textContent='재분석';
+  const lang2=$('#lang2').value; if(engine!=='local'&&lang2&&!/\+/.test(cur.transcript.language||'')){ const h=document.createElement('div'); h.className='msg err'; h.textContent='이 분석은 두 번째 언어('+(LANGN[lang2]||lang2)+') 설정 전에 만든 것입니다. 오른쪽 위 "재분석"을 눌러 주세요.'; L.appendChild(h); }
+  else if(cur.transcript.judgeTotal&&!cur.transcript.judged){ const h=document.createElement('div'); h.className='msg err'; h.textContent='언어 판정(LLM)이 실패해 기본 규칙으로만 합쳤습니다. 잠시 후 "재분석"하면 나아질 수 있습니다.'; L.appendChild(h); }
   const tl=$('#tlang').value; const trs=cur.translations[tl]||null;
   cur.transcript.segments.forEach((s,li)=>{
     const p=document.createElement('p'); p.className='line'; p.dataset.i=li;
