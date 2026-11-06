@@ -118,10 +118,10 @@ dialog h2{margin:0 0 8px;font-size:18px}
   <div id="localBox" class="hidden">
     <label>기기 내 모델</label>
     <select id="lmodel">
-      <option value="onnx-community/whisper-large-v3-turbo_timestamped">large-v3-turbo (최고 정확도, GPU 약 1.6GB / CPU 약 1.1GB)</option>
-      <option value="onnx-community/whisper-medium_timestamped">medium (약 1GB)</option>
-      <option value="onnx-community/whisper-small_timestamped">small (약 250MB)</option>
+      <option value="onnx-community/whisper-small_timestamped">small (약 250MB, 권장)</option>
       <option value="onnx-community/whisper-base_timestamped">base (약 80MB, 빠름, 정확도 낮음)</option>
+      <option value="onnx-community/whisper-medium_timestamped">medium (약 1GB, RAM 8GB+ 폰, 앱이 꺼질 수 있음)</option>
+      <option value="onnx-community/whisper-large-v3-turbo_timestamped">large-v3-turbo (약 1.6GB, RAM 12GB+ 폰, 앱이 꺼질 수 있음)</option>
     </select>
     <div id="gpuInfo" class="muted" style="margin-top:4px;line-height:1.5"></div>
   </div>
@@ -237,13 +237,25 @@ function applyProv(){ const P=PROV[prov]; $('#prov').value=prov; $('#key').value
 applyProv();
 $('#lang').value=LS.get('lang',''); $('#lang2').value=LS.get('lang2',''); $('#tlang').value=LS.get('tlang','ko');
 $('#lang2').onchange=()=>LS.set('lang2',$('#lang2').value); $('#hint').value=LS.get('hint','');
-let engine=LS.get('engine','cloud'); $('#engine').value=engine; $('#lmodel').value=LS.get('lmodel','onnx-community/whisper-large-v3-turbo_timestamped');
+let engine=LS.get('engine','cloud'); $('#engine').value=engine; $('#lmodel').value=LS.get('lmodel','onnx-community/whisper-small_timestamped')||'onnx-community/whisper-small_timestamped';
 let hasGPU=!!navigator.gpu;
 if(hasGPU){ navigator.gpu.requestAdapter().then(a=>{ hasGPU=!!a; applyEngine(); }).catch(()=>{ hasGPU=false; applyEngine(); }); }
-function applyEngine(){ $('#localBox').classList.toggle('hidden',engine!=='local'); $('#gpuInfo').textContent=hasGPU?'WebGPU 사용 가능: 폰 GPU로 분석합니다. 모델은 처음 한 번만 내려받아 저장됩니다.':'이 기기는 WebGPU를 지원하지 않아 CPU로 동작합니다. large 모델은 매우 느리므로 small/base를 권장합니다.'; }
+const MEM=navigator.deviceMemory||0; // GB (크롬은 최대 8로 보고)
+function applyEngine(){ $('#localBox').classList.toggle('hidden',engine!=='local');
+  const big=/large|medium/.test($('#lmodel').value);
+  let info=hasGPU?'WebGPU 사용 가능: 폰 GPU로 분석합니다. 모델은 처음 한 번만 내려받아 저장됩니다.':'이 기기는 WebGPU를 지원하지 않아 CPU로 동작합니다. small/base를 권장합니다.';
+  if(big) info+=' 큰 모델은 메모리 부족으로 앱이 강제 종료될 수 있습니다'+(MEM?' (이 기기 메모리 약 '+MEM+'GB 이상)':'')+'. 꺼지면 다음 실행 때 자동으로 작은 모델로 바뀝니다.';
+  $('#gpuInfo').textContent=info; }
+// 기기 내 분석 도중 앱이 강제 종료된 경우 감지 (메모리 부족): 다음 실행 때 안내 + 작은 모델로 전환
+(function crashGuard(){ const m=LS.get('localRunning',''); if(!m) return; LS.set('localRunning','');
+  const order=['onnx-community/whisper-large-v3-turbo_timestamped','onnx-community/whisper-medium_timestamped','onnx-community/whisper-small_timestamped','onnx-community/whisper-base_timestamped'];
+  const i=order.indexOf(m); const next=i>=0&&i<order.length-1?order[i+1]:'';
+  if(next){ LS.set('lmodel',next); $('#lmodel').value=next; }
+  setTimeout(()=>alert('지난번 기기 내 분석 중 앱이 종료됐습니다. 메모리 부족으로 보입니다.'+(next?' 모델을 '+$('#lmodel').selectedOptions[0].textContent.split(' (')[0]+'(으)로 낮췄습니다. 다시 분석해 보세요.':' 클라우드(Groq) 엔진 사용을 권장합니다.')),300);
+})();
 applyEngine();
 $('#engine').onchange=()=>{ engine=$('#engine').value; LS.set('engine',engine); applyEngine(); };
-$('#lmodel').onchange=()=>LS.set('lmodel',$('#lmodel').value);
+$('#lmodel').onchange=()=>{ LS.set('lmodel',$('#lmodel').value); applyEngine(); };
 $('#hint').onchange=()=>LS.set('hint',$('#hint').value.trim());
 document.documentElement.style.setProperty('--fs',LS.get('fs','20')+'px');
 if(LS.get('notr','0')==='1'){ document.body.classList.add('notr'); $('#trToggle').classList.remove('on'); }
@@ -385,24 +397,30 @@ async function wordMeaning(word,ctx,tl){
 let worker=null;
 async function decodeTo16k(blob){
   const buf=await blob.arrayBuffer();
-  const ac=new (window.AudioContext||window.webkitAudioContext)();
-  let dec; try{ dec=await ac.decodeAudioData(buf); } finally { try{ ac.close(); }catch(e){} }
-  const n=Math.ceil(dec.duration*16000);
-  const oc=new OfflineAudioContext(1,n,16000);
-  const src=oc.createBufferSource(); src.buffer=dec; src.connect(oc.destination); src.start(0);
-  const out=await oc.startRendering();
-  return out.getChannelData(0);
+  // OfflineAudioContext(16kHz)의 decodeAudioData는 16kHz로 바로 리샘플링해 주므로 메모리를 크게 아낀다
+  const oc=new OfflineAudioContext(1,16000,16000);
+  const dec=await oc.decodeAudioData(buf);
+  const ch=dec.numberOfChannels, n=dec.length;
+  if(ch===1) return dec.getChannelData(0);
+  const out=new Float32Array(n);
+  for(let c=0;c<ch;c++){ const d=dec.getChannelData(c); for(let i=0;i<n;i++) out[i]+=d[i]/ch; }
+  return out;
 }
 async function transcribeLocal(t,signal){
   $('#progMsg').textContent='오디오 디코딩 중…';
   let audio; try{ audio=await decodeTo16k(t.blob); }catch(e){ throw new Error('오디오를 디코딩할 수 없습니다: '+(e.message||e)); }
   if(signal.aborted) throw Object.assign(new Error('abort'),{name:'AbortError'});
-  const model=$('#lmodel').value; const big=/large|medium/.test(model);
-  if(hasGPU){
-    try{ return await runWorker(model,'webgpu',big?{encoder_model:'fp16',decoder_model_merged:'q4'}:'fp32',audio.slice(0),signal); }
-    catch(e){ if(e.name==='AbortError'||!/webgpu|gpu|adapter/i.test(e.message||'')) throw e; hasGPU=false; applyEngine(); $('#progMsg').textContent='GPU 사용 불가, CPU로 전환…'; }
-  }
-  return await runWorker(model,'wasm','q8',audio,signal);
+  let model=$('#lmodel').value; const big=/large|medium/.test(model);
+  if(audio.length>16000*60*30) throw new Error('30분이 넘는 파일은 기기 내 분석이 어렵습니다. 클라우드 엔진을 쓰거나 파일을 나눠 주세요.');
+  LS.set('localRunning',model); // 분석 중 강제 종료 감지용
+  try{
+    if(hasGPU){
+      try{ return await runWorker(model,'webgpu',big?{encoder_model:'fp16',decoder_model_merged:'q4'}:'fp32',audio.slice(0),signal); }
+      catch(e){ if(e.name==='AbortError'||!/webgpu|gpu|adapter/i.test(e.message||'')) throw e; hasGPU=false; applyEngine(); $('#progMsg').textContent='GPU 사용 불가, CPU로 전환…'; }
+    }
+    if(big){ model='onnx-community/whisper-small_timestamped'; LS.set('lmodel',model); $('#lmodel').value=model; $('#progMsg').textContent='CPU에서는 큰 모델을 쓸 수 없어 small로 전환…'; }
+    return await runWorker(model,'wasm','q8',audio,signal);
+  } finally { LS.set('localRunning',''); }
 }
 function runWorker(model,device,dtype,audio,signal){
   return new Promise((res,rej)=>{
