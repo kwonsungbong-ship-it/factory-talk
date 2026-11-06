@@ -110,7 +110,22 @@ dialog h2{margin:0 0 8px;font-size:18px}
 
 <dialog id="dSet">
   <h2>설정</h2>
-  <label>서비스 제공자</label>
+  <label>음성 인식 엔진</label>
+  <select id="engine">
+    <option value="cloud">클라우드 (아래 서비스 제공자 사용)</option>
+    <option value="local">기기 내 Whisper (오프라인, 모델 다운로드)</option>
+  </select>
+  <div id="localBox" class="hidden">
+    <label>기기 내 모델</label>
+    <select id="lmodel">
+      <option value="onnx-community/whisper-large-v3-turbo_timestamped">large-v3-turbo (최고 정확도, GPU 약 1.6GB / CPU 약 1.1GB)</option>
+      <option value="onnx-community/whisper-medium_timestamped">medium (약 1GB)</option>
+      <option value="onnx-community/whisper-small_timestamped">small (약 250MB)</option>
+      <option value="onnx-community/whisper-base_timestamped">base (약 80MB, 빠름, 정확도 낮음)</option>
+    </select>
+    <div id="gpuInfo" class="muted" style="margin-top:4px;line-height:1.5"></div>
+  </div>
+  <label>서비스 제공자 <span class="muted">(클라우드 인식, 번역·단어 뜻)</span></label>
   <select id="prov">
     <option value="groq">Groq (무료 티어, Whisper large-v3)</option>
     <option value="openai">OpenAI (유료, whisper-1)</option>
@@ -130,6 +145,8 @@ dialog h2{margin:0 0 8px;font-size:18px}
     <option value="es">스페인어</option>
     <option value="fr">프랑스어</option>
   </select>
+  <label>단어 힌트 <span class="muted">(선택, 클라우드 인식 시 철자 보정)</span></label>
+  <textarea id="hint" rows="2" placeholder="교재 단어, 이름 등을 쉼표로: Hà Nội, phở, Nguyễn"></textarea>
   <label>번역 언어</label>
   <select id="tlang">
     <option value="ko">한국어</option>
@@ -142,12 +159,13 @@ dialog h2{margin:0 0 8px;font-size:18px}
     <button id="keyTest">키 테스트</button>
     <button id="setClose" class="pri">닫기</button>
   </div>
-  <p class="muted" style="margin:14px 0 0;line-height:1.5">파일은 이 기기 안에만 저장됩니다. 분석 시 오디오가 선택한 서비스(Groq 또는 OpenAI) 서버로 전송되며, 결과는 기기에 저장되어 다시 분석하지 않습니다. Whisper는 25MB 이하 파일만 받습니다.</p>
+  <p class="muted" style="margin:14px 0 0;line-height:1.5">파일은 이 기기 안에만 저장됩니다. 클라우드 인식 시 오디오가 선택한 서비스(Groq 또는 OpenAI) 서버로 전송되고, 기기 내 인식 시에는 전송되지 않습니다. 결과는 기기에 저장되어 다시 분석하지 않습니다. 번역·단어 뜻은 엔진과 관계없이 서비스 제공자 키가 있을 때만 동작합니다.</p>
 </dialog>
 
 <dialog id="dProg">
   <h2>단어 싱크 분석 중</h2>
   <div id="prog"><span class="spin"></span><span id="progMsg">업로드 중…</span></div>
+  <progress id="progBar" max="100" value="0" class="hidden" style="width:100%;margin-top:10px;accent-color:var(--acc)"></progress>
   <div class="dlg-actions"><button id="progCancel">취소</button></div>
 </dialog>
 
@@ -206,7 +224,15 @@ const keyName=()=>prov==='openai'?'okey':'gkey';
 let key=LS.get(keyName(),'');
 function applyProv(){ const P=PROV[prov]; $('#prov').value=prov; $('#key').value=LS.get(keyName(),''); $('#key').placeholder=P.ph; $('#keyLabel').textContent=P.name+' API 키'; $('#provHelp').textContent=P.help; $('#keyMsg').textContent=''; key=LS.get(keyName(),''); }
 applyProv();
-$('#lang').value=LS.get('lang',''); $('#tlang').value=LS.get('tlang','ko');
+$('#lang').value=LS.get('lang',''); $('#tlang').value=LS.get('tlang','ko'); $('#hint').value=LS.get('hint','');
+let engine=LS.get('engine','cloud'); $('#engine').value=engine; $('#lmodel').value=LS.get('lmodel','onnx-community/whisper-large-v3-turbo_timestamped');
+let hasGPU=!!navigator.gpu;
+if(hasGPU){ navigator.gpu.requestAdapter().then(a=>{ hasGPU=!!a; applyEngine(); }).catch(()=>{ hasGPU=false; applyEngine(); }); }
+function applyEngine(){ $('#localBox').classList.toggle('hidden',engine!=='local'); $('#gpuInfo').textContent=hasGPU?'WebGPU 사용 가능: 폰 GPU로 분석합니다. 모델은 처음 한 번만 내려받아 저장됩니다.':'이 기기는 WebGPU를 지원하지 않아 CPU로 동작합니다. large 모델은 매우 느리므로 small/base를 권장합니다.'; }
+applyEngine();
+$('#engine').onchange=()=>{ engine=$('#engine').value; LS.set('engine',engine); applyEngine(); };
+$('#lmodel').onchange=()=>LS.set('lmodel',$('#lmodel').value);
+$('#hint').onchange=()=>LS.set('hint',$('#hint').value.trim());
 document.documentElement.style.setProperty('--fs',LS.get('fs','20')+'px');
 if(LS.get('notr','0')==='1'){ document.body.classList.add('notr'); $('#trToggle').classList.remove('on'); }
 
@@ -272,6 +298,7 @@ async function transcribe(t,signal){
   fd.append('timestamp_granularities[]','word');
   fd.append('timestamp_granularities[]','segment');
   const lang=$('#lang').value; if(lang) fd.append('language',lang);
+  const hint=$('#hint').value.trim(); if(hint) fd.append('prompt',hint.slice(0,800));
   const r=await fetch(PROV[prov].base+'/audio/transcriptions',{method:'POST',headers:{Authorization:'Bearer '+key},body:fd,signal});
   if(!r.ok) throw await apiErr(r);
   const j=await r.json();
@@ -283,7 +310,7 @@ function buildTranscript(j){
   let segs=(j.segments||[]).map(s=>({s:+s.start,e:+s.end,text:String(s.text||'').trim(),words:[]}));
   if(!segs.length){ // segment 없이 단어만 온 경우: 문장부호/간격으로 끊기
     let c=null;
-    for(const w of words){ if(!c||w.s-c.e>1.2||/[.!?。！？]$/.test(c.words[c.words.length-1].w)){ c={s:w.s,e:w.e,text:'',words:[]}; segs.push(c);} c.words.push(w); c.e=w.e; }
+    for(const w of words){ if(!c||w.s-c.e>1.0||c.words.length>=14||/[.!?。！？]$/.test(c.words[c.words.length-1].w)){ c={s:w.s,e:w.e,text:'',words:[]}; segs.push(c);} c.words.push(w); c.e=Math.max(c.e,w.e); }
     segs.forEach(s=>s.text=s.words.map(w=>w.w).join(' '));
   }else{
     let si=0;
@@ -321,20 +348,64 @@ async function wordMeaning(word,ctx,tl){
   return [j.meaning,j.note].filter(Boolean).join('\n');
 }
 
+/* ---------- 기기 내 Whisper (stt-worker.js) ---------- */
+let worker=null;
+async function decodeTo16k(blob){
+  const buf=await blob.arrayBuffer();
+  const ac=new (window.AudioContext||window.webkitAudioContext)();
+  let dec; try{ dec=await ac.decodeAudioData(buf); } finally { try{ ac.close(); }catch(e){} }
+  const n=Math.ceil(dec.duration*16000);
+  const oc=new OfflineAudioContext(1,n,16000);
+  const src=oc.createBufferSource(); src.buffer=dec; src.connect(oc.destination); src.start(0);
+  const out=await oc.startRendering();
+  return out.getChannelData(0);
+}
+async function transcribeLocal(t,signal){
+  $('#progMsg').textContent='오디오 디코딩 중…';
+  let audio; try{ audio=await decodeTo16k(t.blob); }catch(e){ throw new Error('오디오를 디코딩할 수 없습니다: '+(e.message||e)); }
+  if(signal.aborted) throw Object.assign(new Error('abort'),{name:'AbortError'});
+  const model=$('#lmodel').value; const big=/large|medium/.test(model);
+  if(hasGPU){
+    try{ return await runWorker(model,'webgpu',big?{encoder_model:'fp16',decoder_model_merged:'q4'}:'fp32',audio.slice(0),signal); }
+    catch(e){ if(e.name==='AbortError'||!/webgpu|gpu|adapter/i.test(e.message||'')) throw e; hasGPU=false; applyEngine(); $('#progMsg').textContent='GPU 사용 불가, CPU로 전환…'; }
+  }
+  return await runWorker(model,'wasm','q8',audio,signal);
+}
+function runWorker(model,device,dtype,audio,signal){
+  return new Promise((res,rej)=>{
+    if(!worker){ worker=new Worker('stt-worker.js',{type:'module'}); }
+    const id=Math.random().toString(36).slice(2);
+    const onAbort=()=>{ try{ worker.terminate(); }catch(e){} worker=null; $('#progBar').classList.add('hidden'); rej(Object.assign(new Error('abort'),{name:'AbortError'})); };
+    signal.addEventListener('abort',onAbort,{once:true});
+    worker.onerror=e=>{ signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); try{ worker.terminate(); }catch(x){} worker=null; rej(new Error('기기 내 인식 오류: '+(e.message||'워커 로드 실패 (인터넷 연결 후 다시 시도)'))); };
+    worker.onmessage=e=>{ const m=e.data;
+      if(m.type==='progress'){ $('#progBar').classList.remove('hidden'); $('#progBar').value=m.total?Math.round(m.loaded/m.total*100):0; $('#progMsg').textContent='모델 다운로드 중 '+(m.total?(m.loaded/1048576|0)+' / '+(m.total/1048576|0)+' MB':'')+' (처음 한 번만)'; }
+      else if(m.type==='ready'){ $('#progBar').classList.add('hidden'); $('#progMsg').textContent='모델 준비 완료, 인식 시작…'; }
+      else if(m.type==='status'){ $('#progMsg').textContent=m.text+(device==='wasm'?' (CPU, 느릴 수 있음)':''); }
+      else if(m.type==='done'&&m.id===id){ signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); const tr=buildTranscript({language:$('#lang').value,text:m.text,words:m.words}); res(tr); }
+      else if(m.type==='error'&&m.id===id){ signal.removeEventListener('abort',onAbort); $('#progBar').classList.add('hidden'); try{ worker.terminate(); }catch(x){} worker=null; rej(new Error('기기 내 인식 실패: '+m.message)); }
+    };
+    $('#progMsg').textContent='모델 확인 중…';
+    worker.postMessage({id,model,device,dtype,audio,language:$('#lang').value||''},[audio.buffer]);
+  });
+}
+
 /* ---------- analysis flow ---------- */
 let ctrl=null;
 $('#progCancel').onclick=()=>{ if(ctrl) ctrl.abort(); };
 async function analyze(t){
-  try{ needKey(); }catch(e){ return; }
+  const local=engine==='local';
+  if(!local){ try{ needKey(); }catch(e){ return; } }
   ctrl=new AbortController(); const sig=ctrl.signal;
-  $('#progMsg').textContent='Whisper로 음성 분석 중… (파일 길이에 따라 수십 초)'; $('#dProg').showModal();
+  $('#progBar').classList.add('hidden');
+  $('#progMsg').textContent=local?'기기 내 Whisper 준비 중…':'Whisper로 음성 분석 중… (파일 길이에 따라 수십 초)'; $('#dProg').showModal();
   try{
-    const tr=await transcribe(t,sig);
+    const tr=local?await transcribeLocal(t,sig):await transcribe(t,sig);
     if(!tr.segments.length) throw new Error('인식된 음성이 없습니다.');
     t.transcript=tr; t.translations={}; t.meanings={}; await DB.put(t);
     const tl=$('#tlang').value;
-    $('#progMsg').textContent='번역 중…';
-    try{ t.translations[tl]=await translateAll(t,tl,sig); await DB.put(t); }catch(e){ if(e.name==='AbortError') throw e; console.warn('translate',e); }
+    if(key){ $('#progMsg').textContent='번역 중…';
+      try{ t.translations[tl]=await translateAll(t,tl,sig); await DB.put(t); }catch(e){ if(e.name==='AbortError') throw e; console.warn('translate',e); } }
     $('#dProg').close();
     if(cur&&cur.id===t.id) buildLyrics(); await loadLib();
   }catch(e){

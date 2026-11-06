@@ -21,7 +21,7 @@ jobs:
       - name: Prepare web files
         run: |
           mkdir -p www
-          cp index.html manifest.json sw.js icon-*.png www/
+          cp index.html stt-worker.js manifest.json sw.js icon-*.png www/
       - name: Install Capacitor
         run: npm install
       - name: Add Android project
