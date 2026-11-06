@@ -253,10 +253,14 @@ function applyEngine(){ $('#localBox').classList.toggle('hidden',engine!=='local
 const STEP={ log:[], mark(t){ const line=new Date().toISOString().slice(11,19)+' '+t; this.log.push(line); if(this.log.length>40) this.log.shift(); LS.set('stepLog',this.log.join('\n')); } };
 function diagText(){ return ['앱 버전: '+(document.querySelector('meta[name=app-version]')||{}).content,'엔진: '+engine+' / 모델: '+$('#lmodel').value.split('/').pop(),'WebGPU: '+hasGPU+' / 메모리(GB): '+(navigator.deviceMemory||'?')+' / 코어: '+(navigator.hardwareConcurrency||'?'),'UA: '+navigator.userAgent,'마지막 강제 종료: '+LS.get('lastCrash','없음'),'--- 최근 단계 ---',LS.get('stepLog','')].join('\n'); }
 $('#diagBtn').onclick=()=>{ const d=$('#diag'); d.classList.toggle('hidden'); d.value=diagText(); if(!d.classList.contains('hidden')){ d.focus(); d.select(); try{ navigator.clipboard&&navigator.clipboard.writeText(d.value); }catch(e){} } };
-(function crashGuard(){ const m=LS.get('localRunning',''); if(!m) return; LS.set('localRunning','');
-  const last=(LS.get('stepLog','').split('\n').pop()||'').replace(/^\S+ /,''); LS.set('lastCrash',new Date().toLocaleString()+' / '+m.split('/').pop()+' / 단계: '+last);
+window.addEventListener('error',e=>STEP.mark('JS 오류: '+(e.message||e)));
+window.addEventListener('unhandledrejection',e=>STEP.mark('Promise 오류: '+((e.reason&&e.reason.message)||e.reason)));
+document.addEventListener('visibilitychange',()=>STEP.mark(document.hidden?'화면 가림(백그라운드)':'화면 복귀'));
+(function crashGuard(){ const m=LS.get('localRunning','')||(LS.get('analyzing','')?'cloud':''); if(!m) return; LS.set('localRunning',''); LS.set('analyzing','');
+  const last=(LS.get('stepLog','').split('\n').filter(l=>!/화면 (가림|복귀)/.test(l)).pop()||'').replace(/^\S+ /,''); LS.set('lastCrash',new Date().toLocaleString()+' / '+m.split('/').pop()+' / 단계: '+last);
   const order=['onnx-community/whisper-large-v3-turbo_timestamped','onnx-community/whisper-medium_timestamped','onnx-community/whisper-small_timestamped','onnx-community/whisper-base_timestamped'];
   const i=order.indexOf(m); const next=i>=0&&i<order.length-1?order[i+1]:'';
+  if(m==='cloud'){ setTimeout(()=>alert('지난번 분석 중 앱이 종료됐습니다.\n\n최근 기록:\n'+LS.get('stepLog','')),300); return; }
   if(next){ LS.set('lmodel',next); $('#lmodel').value=next; }
   setTimeout(()=>alert('지난번 기기 내 분석 중 앱이 종료됐습니다 (마지막 단계: '+last+'). 메모리 부족으로 보입니다.'+(next?' 모델을 '+$('#lmodel').selectedOptions[0].textContent.split(' (')[0]+'(으)로 낮췄습니다. 다시 분석해 보세요.':' 클라우드(Groq) 엔진 사용을 권장합니다.')),300);
 })();
@@ -530,12 +534,14 @@ let ctrl=null;
 $('#progCancel').onclick=()=>{ if(ctrl) ctrl.abort(); };
 async function analyze(t){
   const local=engine==='local';
+  STEP.log=[]; STEP.mark('분석 시작 ('+(local?'기기 내':'클라우드 '+prov)+') '+t.name+' '+fmtSize(t.size)); LS.set('analyzing','1');
   if(!local){ try{ needKey(); }catch(e){ return; } }
   ctrl=new AbortController(); const sig=ctrl.signal;
   $('#progBar').classList.add('hidden');
   $('#progMsg').textContent=local?'기기 내 Whisper 준비 중…':'Whisper로 음성 분석 중… (파일 길이에 따라 수십 초)'; $('#dProg').showModal();
   try{
     const tr=local?await transcribeLocal(t,sig):await transcribe(t,sig);
+    STEP.mark('인식 완료 '+tr.segments.length+'문장'); LS.set('analyzing','');
     if(!tr.segments.length) throw new Error('인식된 음성이 없습니다.');
     t.transcript=tr; t.translations={}; t.meanings={}; await DB.put(t);
     const tl=$('#tlang').value;
@@ -546,6 +552,7 @@ async function analyze(t){
   }catch(e){
     $('#dProg').close();
     if(e.name==='AbortError') return;
+    STEP.mark('오류: '+(e.message||e)); LS.set('analyzing','');
     alert('분석 실패: '+(e.message||e));
   }finally{ ctrl=null; }
 }
@@ -556,10 +563,11 @@ $('#btnAnalyze').onclick=()=>cur&&analyze(cur);
    웹/PWA: 브라우저의 navigator.mediaSession */
 const NMS=(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MediaSession)||null;
 const WMS=('mediaSession' in navigator)?navigator.mediaSession:null;
+const ART_DATA='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAEJklEQVR4nO3asY1bRxSF4ZGhAhQqVGwocBEqwGW4AMOxYsMFqAwX4CIcCG5HDgRaa3JJLXdn3syd830FCATf/XHeCnz15u27Lw1C/TD7A8BMAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAom0fwIc/f5/9EVjY9gG09jUCIfCYiABORMC5qABaswb8X1wAJyKgteAAWrMGhAdwIoRcAnhABHkEcMYaZBHAFSLIIIAbrMH+BPAEQtiXAO4ggv0I4E7WYC8CeCYh7EEALySC2gTQgTWoSwAdiaAeAXRmDWoRwCBCqEEAg4lgbQI4gDVYlwAOJIL1COBg1mAtAphECGsQwGQimEsAC7AG8whgISI4ngAWYw2OJYBFCeEYAlicCMYSQAHWYBwBFCKC/gRQjDXoSwBFCaEPARQngpcRwAaswfMJYCMiuJ8ANmMN7iOATQnhaQSwORHcJoAA1uA6AQQRwiUBBBLBNwIIZQ2+EkC49AgEQPQaCID/JIYgAC4kRSAAHpWyBgLgpt0jEADftfMavJ79AVjfXz//NvsjDGMBuGnn42/NAnDF7od/YgG4kHL8rVkAHkg6/BMBEHn4J16BwiUff2sWIFb64Z9YgECO/xsLEMThXxJAAId/nVegzTn+2yzAphz+0whgMw7/Pl6BNuL472cBNuDwn88CFOf4X8YCFOXw+xBAMQ6/L69AhTj+/ixAAQ5/HAuwOMc/lgVYlMM/hgAW4/CP5RVoIY7/eBZgAQ5/HgswmeOfywJM4vDXIICDOfy1eAU6kONfjwU4gMNflwUYzPGvzQIM4vBrEEBnDr8Wr0AdOf56LEAHDr8uC/BCjr82C/BMDn8PAriTw9+LV6A7OP79WIAncPj7EsANDn9/XoGucPwZLMAZh5/FAjzg+PNYgObwk0UH4PCJfQVy/LQWuAAOn4eiFsDxcy5iARw+17x68/bdl9kfAmaJegWCcwIgmgCIJgCiCYBopf8b9J/Pf8/+CAz24/ufhv77ZRfA8WcY/ZxLBuD4s4x83iUDgF4EQLSSAYz+w4i1jHzeJQNoTQQpRj9nP4YjWtkFgB4EQDQBEK30TyF++fXj7I8Q49MfH2d/hCHKLoDjP9au33fJAHZ9GKvb8XsvGQD0IgCilQxg1z/IVrfj914ygNb2fBgr2/X79lMIopVdAOhBAEQTANH8FILhVv4DuuwCOP46Vn5WJQNY+Qvlcas+s5IBQC8CIFrJAFb+o4rHrfrMSgbQ2rpfKJdWflZ+CkG0sgsAPQiAaAIgmgCIJgCiCYBoAiCaAIj2L6qf/eMYhJOiAAAAAElFTkSuQmCC';
 const MS={
   on:!!(NMS||WMS), lastTitle:'',
   meta(title,artist,album){ if(!this.on) return; if(title===this.lastTitle&&artist===this.lastArtist) return; this.lastTitle=title; this.lastArtist=artist;
-    const m={title,artist,album}; if(!NMS) m.artwork=[{src:new URL('icon-512.png',location.href).href,sizes:'512x512',type:'image/png'}];
+    const m={title,artist,album,artwork:[{src:NMS?ART_DATA:new URL('icon-512.png',location.href).href,sizes:'192x192',type:'image/png'}]};
     try{ if(NMS) NMS.setMetadata(m); else WMS.metadata=new MediaMetadata(m); }catch(e){} },
   state(st){ if(!this.on) return; try{ if(NMS) NMS.setPlaybackState({playbackState:st}); else WMS.playbackState=st; }catch(e){} },
   pos(){ if(!this.on||!isFinite(audio.duration)) return; const o={duration:audio.duration,playbackRate:audio.playbackRate,position:Math.min(audio.currentTime,audio.duration)}; try{ if(NMS) NMS.setPositionState(o); else WMS.setPositionState(o); }catch(e){} },
@@ -577,7 +585,7 @@ function updateLockText(){ if(!cur) return; let title=cur.name, artist='Lingo Pl
 
 /* ---------- player ---------- */
 async function openPlayer(t){
-  cur=await DB.get(t.id)||t;
+  STEP.mark('곡 열기 '+t.name); cur=await DB.get(t.id)||t;
   $('#lib').classList.add('hidden'); $('#player').classList.remove('hidden'); $('#back').classList.remove('hidden'); $('#btnAnalyze').classList.remove('hidden');
   $('#title').textContent=cur.name;
   if(objUrl) URL.revokeObjectURL(objUrl); objUrl=URL.createObjectURL(cur.blob); audio.src=objUrl; audio.playbackRate=+LS.get('rate','1'); $('#rate').textContent=audio.playbackRate+'x';
