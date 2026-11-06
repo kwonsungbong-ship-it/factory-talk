@@ -19,17 +19,28 @@ jobs:
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
       - name: Prepare web files
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           mkdir -p www
           cp index.html stt-worker.js manifest.json sw.js icon-*.png www/
+          if [ -n "$GROQ_API_KEY" ]; then
+            sed -i "s|__GROQ_KEY__|$GROQ_API_KEY|" www/index.html && echo "builtin Groq key: set"
+          else
+            echo "builtin Groq key: none (secret GROQ_API_KEY not set; enter key in app settings)"
+          fi
       - name: Install Capacitor
         run: npm install
       - name: Add Android project
         run: |
           npx cap add android
           npx cap sync android
-      - name: Patch icons
+      - name: Patch manifest (background playback permissions) and icons
         run: |
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's#<uses-permission android:name="android.permission.INTERNET" />#<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />#' $M
+          grep -q FOREGROUND_SERVICE_MEDIA_PLAYBACK $M || sed -i 's#<application#<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <application#' $M
+          grep -n "uses-permission" $M
           for d in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
             for n in ic_launcher ic_launcher_round ic_launcher_foreground; do
               cp icon-512.png android/app/src/main/res/mipmap-$d/$n.png 2>/dev/null || true

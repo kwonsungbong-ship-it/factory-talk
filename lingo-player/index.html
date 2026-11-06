@@ -221,8 +221,10 @@ const PROV={
 };
 let prov=PROV[LS.get('prov','groq')]?LS.get('prov','groq'):'groq';
 const keyName=()=>prov==='openai'?'okey':'gkey';
-let key=LS.get(keyName(),'');
-function applyProv(){ const P=PROV[prov]; $('#prov').value=prov; $('#key').value=LS.get(keyName(),''); $('#key').placeholder=P.ph; $('#keyLabel').textContent=P.name+' API 키'; $('#provHelp').textContent=P.help; $('#keyMsg').textContent=''; key=LS.get(keyName(),''); }
+const BUILTIN_GROQ=(k=>k.startsWith('__')?'':k)('__GROQ_KEY__'); // 빌드 시 GitHub Secret으로 치환
+const resolveKey=()=>LS.get(keyName(),'')||(prov==='groq'?BUILTIN_GROQ:'');
+let key=resolveKey();
+function applyProv(){ const P=PROV[prov]; $('#prov').value=prov; $('#key').value=LS.get(keyName(),''); $('#key').placeholder=P.ph; $('#keyLabel').textContent=P.name+' API 키'; $('#provHelp').textContent=P.help; $('#keyMsg').textContent=(prov==='groq'&&BUILTIN_GROQ&&!LS.get('gkey',''))?'내장 키 사용 중 (비워 두면 내장 키, 입력하면 그 키 사용)':''; key=resolveKey(); }
 applyProv();
 $('#lang').value=LS.get('lang',''); $('#tlang').value=LS.get('tlang','ko'); $('#hint').value=LS.get('hint','');
 let engine=LS.get('engine','cloud'); $('#engine').value=engine; $('#lmodel').value=LS.get('lmodel','onnx-community/whisper-large-v3-turbo_timestamped');
@@ -275,7 +277,7 @@ $('#dtReset').onclick=async()=>{ dlgTrack.transcript=null; dlgTrack.translations
 /* ---------- settings ---------- */
 $('#btnSet').onclick=()=>$('#dSet').showModal();
 $('#setClose').onclick=()=>$('#dSet').close();
-$('#key').onchange=()=>{ LS.set(keyName(),$('#key').value.trim()); key=$('#key').value.trim(); $('#keyMsg').textContent=''; };
+$('#key').onchange=()=>{ LS.set(keyName(),$('#key').value.trim()); key=resolveKey(); $('#keyMsg').textContent=''; };
 $('#prov').onchange=()=>{ prov=$('#prov').value; LS.set('prov',prov); applyProv(); };
 $('#lang').onchange=()=>LS.set('lang',$('#lang').value);
 $('#tlang').onchange=()=>LS.set('tlang',$('#tlang').value);
@@ -416,6 +418,30 @@ async function analyze(t){
 }
 $('#btnAnalyze').onclick=()=>cur&&analyze(cur);
 
+/* ---------- 잠금화면/알림 미디어 컨트롤 (Media Session) ----------
+   안드로이드 앱: @jofr/capacitor-media-session 네이티브 플러그인 (포그라운드 서비스로 백그라운드 재생 유지)
+   웹/PWA: 브라우저의 navigator.mediaSession */
+const NMS=(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MediaSession)||null;
+const WMS=('mediaSession' in navigator)?navigator.mediaSession:null;
+const MS={
+  on:!!(NMS||WMS), lastTitle:'',
+  meta(title,artist,album){ if(!this.on) return; if(title===this.lastTitle&&artist===this.lastArtist) return; this.lastTitle=title; this.lastArtist=artist;
+    const m={title,artist,album,artwork:[{src:new URL('icon-512.png',location.href).href,sizes:'512x512',type:'image/png'}]};
+    try{ if(NMS) NMS.setMetadata(m); else WMS.metadata=new MediaMetadata(m); }catch(e){} },
+  state(st){ if(!this.on) return; try{ if(NMS) NMS.setPlaybackState({playbackState:st}); else WMS.playbackState=st; }catch(e){} },
+  pos(){ if(!this.on||!isFinite(audio.duration)) return; const o={duration:audio.duration,playbackRate:audio.playbackRate,position:Math.min(audio.currentTime,audio.duration)}; try{ if(NMS) NMS.setPositionState(o); else WMS.setPositionState(o); }catch(e){} },
+  handlers(){ if(!this.on||this._h) return; this._h=true;
+    const H={play:()=>audio.play(),pause:()=>audio.pause(),stop:()=>{ audio.pause(); seek(0); },
+      previoustrack:()=>$('#prevL').click(),nexttrack:()=>$('#nextL').click(),
+      seekbackward:d=>seek(audio.currentTime-((d&&d.seekOffset)||5)),seekforward:d=>seek(audio.currentTime+((d&&d.seekOffset)||5)),
+      seekto:d=>{ if(d&&d.seekTime!=null) seek(d.seekTime); }};
+    for(const a in H){ try{ if(NMS) NMS.setActionHandler({action:a},H[a]); else WMS.setActionHandler(a,H[a]); }catch(e){} } }
+};
+// 잠금화면에 현재 문장(+번역)을 제목처럼 표시
+function updateLockText(){ if(!cur) return; let title=cur.name, artist='Lingo Player';
+  if(cur.transcript&&curL>=0){ const seg=cur.transcript.segments[curL]; const tr=(cur.translations[$('#tlang').value]||[])[curL]; title=seg.text; artist=tr||cur.name; }
+  MS.meta(title,artist,cur.name); }
+
 /* ---------- player ---------- */
 async function openPlayer(t){
   cur=await DB.get(t.id)||t;
@@ -423,10 +449,11 @@ async function openPlayer(t){
   $('#title').textContent=cur.name;
   if(objUrl) URL.revokeObjectURL(objUrl); objUrl=URL.createObjectURL(cur.blob); audio.src=objUrl; audio.playbackRate=+LS.get('rate','1'); $('#rate').textContent=audio.playbackRate+'x';
   loopOn=false; $('#loop').classList.remove('on');
+  MS.handlers(); MS.lastTitle=''; updateLockText();
   buildLyrics();
   if(!cur.transcript) analyze(cur);
 }
-function closePlayer(){ audio.pause(); cancelAnimationFrame(raf); cur=null; $('#player').classList.add('hidden'); $('#lib').classList.remove('hidden'); $('#back').classList.add('hidden'); $('#btnAnalyze').classList.add('hidden'); $('#title').textContent='Lingo Player'; }
+function closePlayer(){ audio.pause(); MS.state('none'); cancelAnimationFrame(raf); cur=null; $('#player').classList.add('hidden'); $('#lib').classList.remove('hidden'); $('#back').classList.add('hidden'); $('#btnAnalyze').classList.add('hidden'); $('#title').textContent='Lingo Player'; }
 $('#back').onclick=closePlayer;
 
 function buildLyrics(){
@@ -465,13 +492,16 @@ function tick(force){
   }
   if(!audio.paused) raf=requestAnimationFrame(()=>tick(false));
 }
-function setLine(li){ if(li===curL) return; if(curL>=0&&lineEls[curL]) lineEls[curL].classList.remove('cur'); curL=li; const p=lineEls[li]; if(!p) return; p.classList.add('cur');
+function setLine(li){ if(li===curL) return; if(curL>=0&&lineEls[curL]) lineEls[curL].classList.remove('cur'); curL=li; updateLockText(); const p=lineEls[li]; if(!p) return; p.classList.add('cur');
   const L=$('#lyrics'); const top=p.offsetTop-L.clientHeight*0.35; L.scrollTo({top:Math.max(0,top),behavior:'smooth'}); }
-audio.onplay=()=>{ $('#play').textContent='❚❚'; cancelAnimationFrame(raf); tick(false); };
-audio.onpause=()=>{ $('#play').textContent='▶'; cancelAnimationFrame(raf); tick(true); };
-audio.onended=()=>{ $('#play').textContent='▶'; };
+audio.onplay=()=>{ $('#play').textContent='❚❚'; cancelAnimationFrame(raf); tick(false); MS.state('playing'); MS.pos(); };
+audio.onpause=()=>{ $('#play').textContent='▶'; cancelAnimationFrame(raf); tick(true); MS.state('paused'); MS.pos(); };
+audio.onended=()=>{ $('#play').textContent='▶'; MS.state('paused'); };
+audio.onratechange=()=>MS.pos();
+audio.onseeked=()=>MS.pos();
 audio.onloadedmetadata=()=>{ $('#tDur').textContent=fmt(audio.duration); if(cur&&!cur.duration&&isFinite(audio.duration)){ cur.duration=audio.duration; DB.put(cur).then(loadLib); } };
-audio.ontimeupdate=()=>{ if(audio.paused) tick(false); };
+audio.ontimeupdate=()=>{ if(audio.paused||document.hidden) tick(false); };
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&!audio.paused){ cancelAnimationFrame(raf); tick(true); } });
 $('#play').onclick=()=>audio.paused?audio.play():audio.pause();
 $('#bar').oninput=()=>{ if(audio.duration) seek(audio.duration*$('#bar').value/1000); };
 $('#back5').onclick=()=>seek(audio.currentTime-5);
