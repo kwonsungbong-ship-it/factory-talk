@@ -82,4 +82,4 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           TAG="lingo-v1.0.${{ github.run_number }}"
-          gh release create "$TAG" LingoPlayer.apk --title "Lingo Player $TAG" --notes "언어학습 음악 플레이어 안드로이드 APK — 다운로드 후 설치 (출처를 알 수 없는 앱 허용 필요). 설정에서 OpenAI API 키 입력." 
+          gh release create "$TAG" LingoPlayer.apk --title "Lingo Player $TAG" --notes "언어학습 음악 플레이어 안드로이드 APK — 다운로드 후 설치 (출처를 알 수 없는 앱 허용 필요)." 
