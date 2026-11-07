@@ -43,9 +43,6 @@ main{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
 #lyrics{flex:1;overflow:auto;padding:24px 16px 45vh;scroll-behavior:smooth;font-size:var(--fs);line-height:1.75}
 .line{margin:0 0 18px;padding:6px 10px;border-radius:10px;color:var(--mute);transition:background .15s}
 .line.cur{color:var(--text);background:var(--panel)}
-.line .tr{display:block;font-size:.72em;color:var(--mute);margin-top:2px;line-height:1.4}
-.line.cur .tr{color:#b9c8d6}
-body.notr .tr{display:none}
 .w{display:inline-block;border-radius:6px;padding:0 3px;margin:0 1px;transition:background .08s}
 .line.cur .w.done{color:#b9c8d6}
 .w.now{background:var(--acc2);color:#1a1400;font-weight:700}
@@ -100,7 +97,6 @@ dialog h2{margin:0 0 8px;font-size:18px}
       <div class="row small">
         <button id="loop" title="현재 문장 반복">문장 반복</button>
         <button id="rate">1.0x</button>
-        <button id="trToggle" class="on">번역</button>
         <button id="fsBtn">글자</button>
       </div>
     </div>
@@ -158,7 +154,7 @@ dialog h2{margin:0 0 8px;font-size:18px}
     <option value="zh">중국어</option>
     <option value="ja">일본어</option>
   </select>
-  <label>번역 언어</label>
+  <label>단어 뜻 언어 <span class="muted">(단어를 눌렀을 때)</span></label>
   <select id="tlang">
     <option value="ko">한국어</option>
     <option value="en">English</option>
@@ -269,7 +265,6 @@ $('#engine').onchange=()=>{ engine=$('#engine').value; LS.set('engine',engine); 
 $('#lmodel').onchange=()=>{ LS.set('lmodel',$('#lmodel').value); applyEngine(); };
 $('#hint').onchange=()=>LS.set('hint',$('#hint').value.trim());
 document.documentElement.style.setProperty('--fs',LS.get('fs','20')+'px');
-if(LS.get('notr','0')==='1'){ document.body.classList.add('notr'); $('#trToggle').classList.remove('on'); }
 
 /* ---------- library ---------- */
 async function loadLib(){ tracks=(await DB.all()).sort((a,b)=>b.added-a.added); renderLib(); }
@@ -325,87 +320,66 @@ async function apiErr(r){ let d=''; try{ const j=await r.json(); d=j.error&&j.er
 async function transcribe(t,signal){
   needKey();
   const lang=$('#lang').value, lang2=$('#lang2').value;
-  if(lang2&&lang2!==lang&&await isMp3(t.blob)) return await transcribeBilingualPieces(t,lang,lang2,signal);
-  const a=await whisperPass(t,lang,signal);
-  if(!lang2||lang2===lang) return a;
-  // 이중 언어(MP3가 아닌 파일): 통째로 두 번 인식 후 단어 단위 합치기
-  $('#progMsg').textContent='두 번째 언어('+(LANGN[lang2]||lang2)+')로 인식 중…';
-  const b=await whisperPass(t,lang2,signal);
-  const flat=tr=>{ const W=[]; for(const sg of tr.segments) for(const w of sg.words) W.push({...w}); return W; };
-  return await mergeBilingual(flat(a),flat(b),[],lang||a.language,lang2,signal);
+  if(lang2&&lang2!==lang) return await transcribeBilingualUtterances(t,lang,lang2,signal);
+  return await whisperPass(t,lang,signal);
 }
-// 이중 언어 조각 파이프라인: Whisper는 30초 창 단위로 디코딩하면서 앞 창의 텍스트를 문맥으로 쓰기 때문에, 두 언어가 섞인 긴 파일을
-// 통째로 보내면 둘째 창부터 양쪽 언어 모두 망가진다. 오디오를 조용한 지점에서 약 25초 조각으로 잘라 조각마다 (1) 첫 언어 강제,
-// (2) 둘째 언어 강제, (3) 영어 번역(뜻의 기준점) 세 번을 요청하고, 단어 단위로 합친다.
-async function transcribeBilingualPieces(t,lang1,lang2,signal){
-  $('#progMsg').textContent='오디오 분석 중 (조각 나누기)…';
-  const u8=new Uint8Array(await t.blob.arrayBuffer()); const fr=mp3Frames(u8);
-  if(fr.length<10) throw new Error('MP3 프레임을 읽을 수 없습니다.');
-  const sr=fr[0].sr; const cum=new Float64Array(fr.length+1); for(let i=0;i<fr.length;i++) cum[i+1]=cum[i]+fr[i].samples;
-  const dur=cum[fr.length]/sr;
-  // 무음 찾기: 16k PCM의 50ms RMS
-  let rms=null; try{ const pcm=await decodeTo16k(t.blob); const W=800; rms=new Float32Array(Math.ceil(pcm.length/W)); for(let i=0;i<rms.length;i++){ let a=0; const st=i*W, en=Math.min(pcm.length,st+W); for(let k=st;k<en;k++) a+=pcm[k]*pcm[k]; rms[i]=Math.sqrt(a/Math.max(1,en-st)); } }catch(e){ STEP.mark('무음 탐색 실패, 고정 간격 사용'); }
-  const PIECE=25, cuts=[0];
-  for(let tgt=PIECE; tgt<dur-5; tgt+=PIECE){ let best=tgt; if(rms){ let bv=Infinity; for(let x=Math.max(0,tgt-3); x<=Math.min(dur,tgt+3); x+=0.05){ const i=Math.min(rms.length-1,Math.floor(x*20)); if(rms[i]<bv){ bv=rms[i]; best=x; } } } cuts.push(best); }
-  // 시각 → 프레임 인덱스 (그 시각 이후 첫 프레임)
-  const t2f=x=>{ let lo=0,hi=fr.length-1; while(lo<hi){ const m=(lo+hi)>>1; if(cum[m]/sr<x) lo=m+1; else hi=m; } return lo; };
-  const pieces=[]; for(let k=0;k<cuts.length;k++){ const a=k?t2f(cuts[k]):0, b=k+1<cuts.length?t2f(cuts[k+1]):fr.length; if(b>a) pieces.push({a,b}); }
-  STEP.mark('이중 언어 조각 '+pieces.length+'개 ('+(dur|0)+'초)');
-  const WA=[], WB=[], EN=[]; let langDet='';
-  for(let k=0;k<pieces.length;k++){
-    const P=pieces[k]; const blob=new Blob([u8.buffer.slice(fr[P.a].off,fr[P.b-1].off+fr[P.b-1].len)],{type:'audio/mpeg'});
-    const sh=cum[P.a]/sr-(k?(1105+fr[P.a].samples)/sr:0); // 중간 조각은 디코더 지연만큼 늦게 들림
-    const tag=' ('+(k+1)+'/'+pieces.length+' 조각)';
-    $('#progMsg').textContent=(LANGN[lang1]||lang1||'자동')+' 인식 중…'+tag; const ja=await whisperRaw(blob,'audio/mpeg',lang1,signal); langDet=langDet||ja.language||'';
-    $('#progMsg').textContent=(LANGN[lang2]||lang2)+' 인식 중…'+tag; const jb=await whisperRaw(blob,'audio/mpeg',lang2,signal);
-    $('#progMsg').textContent='영어 번역(뜻 기준) 인식 중…'+tag; let je={segments:[]}; try{ je=await whisperRaw(blob,'audio/mpeg','',signal,true); }catch(e){ if(e.name==='AbortError') throw e; STEP.mark('번역 패스 실패 '+(k+1)+': '+(e.message||e)); }
-    for(const w of (ja.words||[])){ const x=String(w.word).trim(); if(x) WA.push({w:x,s:+w.start+sh,e:+w.end+sh}); }
-    for(const w of (jb.words||[])){ const x=String(w.word).trim(); if(x) WB.push({w:x,s:+w.start+sh,e:+w.end+sh}); }
-    for(const g of (je.segments||[])){ const x=String(g.text||'').trim(); if(x) EN.push({text:x,s:+g.start+sh,e:+g.end+sh}); }
+// 이중 언어 파이프라인 (발화 단위): Whisper는 한 요청을 한 언어로만 받아쓰고, 긴 파일을 통째로 보내면 둘째 30초 창부터 문맥에 끌려
+// 양쪽 언어가 모두 망가진다. 그래서 오디오를 16kHz로 풀어 무음(RMS)으로 발화를 나누고, 발화마다 그 구간만 WAV로 잘라
+// 언어 자동 감지로 보낸다. 짧은 한 단어라도 혼자 들려주면 언어와 텍스트가 정확히 나온다. 요청 수 = 발화 수 (모델 두 개를 번갈아 써 분당 한도를 두 배로).
+function pcmToWav(pcm,rate){ const n=pcm.length; const b=new ArrayBuffer(44+n*2); const v=new DataView(b); const str=(o,t)=>{ for(let i=0;i<t.length;i++) v.setUint8(o+i,t.charCodeAt(i)); };
+  str(0,'RIFF'); v.setUint32(4,36+n*2,true); str(8,'WAVE'); str(12,'fmt '); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); str(36,'data'); v.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++){ const x=Math.max(-1,Math.min(1,pcm[i])); v.setInt16(44+i*2,x<0?x*32768:x*32767,true); } return new Blob([b],{type:'audio/wav'}); }
+function vadSegments(pcm,rate){
+  const W=Math.round(rate*0.05); const n=Math.ceil(pcm.length/W); const rms=new Float32Array(n);
+  for(let i=0;i<n;i++){ let a=0; const st=i*W, en=Math.min(pcm.length,st+W); for(let k=st;k<en;k++) a+=pcm[k]*pcm[k]; rms[i]=Math.sqrt(a/Math.max(1,en-st)); }
+  const sorted=Float32Array.from(rms).sort(); const p95=sorted[Math.floor(sorted.length*0.95)]||0; const thr=Math.max(0.004,p95*0.08);
+  const segs=[]; let cur=null, gap=0;
+  for(let i=0;i<n;i++){ const on=rms[i]>thr; const t=i*0.05;
+    if(on){ if(!cur) cur={s:t,e:t+0.05}; else cur.e=t+0.05; gap=0; }
+    else if(cur){ gap+=0.05; if(gap>=0.3){ segs.push(cur); cur=null; gap=0; } } }
+  if(cur) segs.push(cur);
+  const out=[]; for(const g of segs){ if(g.e-g.s<0.15) continue; const last=out[out.length-1]; if(last&&g.s-last.e<0.3) last.e=g.e; else out.push({s:g.s,e:g.e}); }
+  return out;
+}
+async function transcribeBilingualUtterances(t,lang1,lang2,signal){
+  $('#progMsg').textContent='오디오 디코딩 중…';
+  const pcm=await decodeTo16k(t.blob,(i,n)=>{ $('#progMsg').textContent='오디오 디코딩 중… '+i+'/'+n; });
+  const RATE=16000, dur=pcm.length/RATE;
+  const segs=vadSegments(pcm,RATE);
+  STEP.mark('발화 '+segs.length+'개 ('+(dur|0)+'초)');
+  if(!segs.length) throw new Error('음성 구간을 찾지 못했습니다.');
+  const VMODELS=prov==='groq'?['whisper-large-v3','whisper-large-v3-turbo']:[PROV[prov].stt]; let vn=0;
+  const out=[]; const langs={}; let fails=0, forced=0;
+  for(let k=0;k<segs.length;k++){ const g=segs[k];
+    $('#progMsg').textContent='발화 듣는 중… ('+(k+1)+'/'+segs.length+')';
+    let s0=Math.max(0,g.s-0.2), e0=Math.min(dur,g.e+0.2); if(e0-s0<1.0){ const m=(s0+e0)/2; s0=Math.max(0,m-0.5); e0=Math.min(dur,m+0.5); }
+    const wav=pcmToWav(pcm.subarray(Math.round(s0*RATE),Math.round(e0*RATE)),RATE);
+    let j=null; try{ j=await whisperRaw(wav,'audio/wav','',signal,false,{model:VMODELS[(vn++)%VMODELS.length],noPrompt:true}); }catch(e){ if(e.name==='AbortError') throw e; fails++; STEP.mark('발화 '+(k+1)+' 실패: '+(e.message||e)); continue; }
+    let lang=LANGCODE(j.language);
+    if(lang!==lang1&&lang!==lang2&&lang1){
+      // 엉뚱한 언어로 감지되면(짧은 단어에서 가끔) 두 언어를 각각 강제해 보고 이 조각의 평균 로그확률이 높은 쪽을 택한다.
+      // 한 조각은 30초 창 하나라 avg_logprob가 그 발화의 실제 신뢰도가 된다.
+      try{
+        const [ja,jb]=[await whisperRaw(wav,'audio/wav',lang1,signal,false,{model:VMODELS[(vn++)%VMODELS.length],noPrompt:true}), await whisperRaw(wav,'audio/wav',lang2,signal,false,{model:VMODELS[(vn++)%VMODELS.length],noPrompt:true})];
+        const lp=x=>{ const sg=x.segments||[]; return sg.length?sg.reduce((a,g)=>a+(g.avg_logprob??-9),0)/sg.length:-9; };
+        if(lp(ja)>=lp(jb)){ j=ja; lang=lang1; } else { j=jb; lang=lang2; } forced++;
+      }catch(e){ if(e.name==='AbortError') throw e; }
+    }
+    const words=(j.words||[]).map(w=>({w:String(w.word).trim(),s:+w.start+s0,e:+w.end+s0})).filter(w=>w.w&&w.e>g.s-0.4&&w.s<g.e+0.4);
+    if(!words.length) continue;
+    langs[lang]=(langs[lang]||0)+1;
+    out.push({s:Math.min(g.s,words[0].s),e:Math.max(g.e,words[words.length-1].e),lang,words});
   }
-  const tr=await mergeBilingual(WA,WB,EN,lang1||langDet,lang2,signal);
-  tr.pieces=pieces.length; return tr;
+  STEP.mark('발화 인식 완료 '+out.length+'/'+segs.length+(fails?' (실패 '+fails+')':'')+' 강제비교 '+forced+' '+JSON.stringify(langs));
+  // 줄 만들기: 같은 언어가 짧은 간격으로 이어지면 한 줄 (최대 12단어)
+  const lines=[];
+  for(const u of out){ const last=lines[lines.length-1];
+    if(last&&last.lang===u.lang&&u.s-last.e<0.5&&last.words.length+u.words.length<=12){ last.words.push(...u.words); last.e=Math.max(last.e,u.e); }
+    else lines.push({s:u.s,e:u.e,lang:u.lang,words:[...u.words]}); }
+  const segments=lines.map(x=>({s:x.s,e:x.e,lang:x.lang,text:x.words.map(w=>w.w).join(' '),words:x.words}));
+  return {language:(lang1||'auto')+'+'+lang2,segments,text:segments.map(x=>x.text).join(' '),utterances:segs.length,recognized:out.length};
 }
-// 언어별 문자 체계 판정: 그 언어로 "실제로 받아쓴" 문장인지 (강제 언어 패스가 다른 언어를 번역해 낸 경우 걸러내는 보조 신호)
-const SCRIPT={ko:/[\uac00-\ud7a3]/,ja:/[\u3040-\u30ff\u4e00-\u9fff]/,zh:/[\u4e00-\u9fff]/,vi:/[a-zA-Z\u00c0-\u1ef9]/,en:/[a-zA-Z]/,es:/[a-zA-Z]/,fr:/[a-zA-Z]/};
-// 이중 언어 합치기 (단어 단위): 두 패스의 단어를 시간순으로 섞어 발화(간격 0.35초)로 묶고,
-// 발화마다 "실제로 그 언어로 말한 쪽"을 LLM이 고른다. 틀린 언어로 강제된 패스는 음차 헛소리나 번역이 되므로 구분이 쉽다.
-// (Groq의 avg_logprob는 30초 창 단위라 발화별 신뢰도 비교가 불가능해 LLM 판정을 쓴다)
-async function mergeBilingual(wa,wb,EN,langA,langB,signal){
-  const W=[]; for(const w of wa) W.push({...w,src:0}); for(const w of wb) W.push({...w,src:1});
-  W.sort((x,y)=>x.s-y.s||x.src-y.src);
-  const cl=[]; let c=null;
-  for(const w of W){ if(!c||w.s-c.e>0.35){ c={s:w.s,e:w.e,A:[],B:[]}; cl.push(c); } (w.src?c.B:c.A).push(w); c.e=Math.max(c.e,w.e); }
-  // 영어 번역 조각을 발화에 붙인다 (시간이 겹치는 것)
-  const enOf=c=>EN.filter(g=>Math.min(g.e,c.e)-Math.max(g.s,c.s)>0.05).map(g=>g.text).join(' ');
-  const text=ws=>ws.map(w=>w.w).join(' ');
-  const items=cl.map((c,i)=>({i,A:text(c.A),B:text(c.B),E:enOf(c)}));
-  const both=items.filter(it=>it.A&&it.B);
-  const choice=new Array(cl.length).fill(null);
-  // 휴리스틱(기본값): 문자 체계가 안 맞으면 반대쪽
-  for(const it of both){ const okA=!SCRIPT[langA]||SCRIPT[langA].test(it.A), okB=!SCRIPT[langB]||SCRIPT[langB].test(it.B); choice[it.i]=okA&&!okB?'A':(!okA&&okB?'B':'A'); }
-  const LN={ko:'Korean',vi:'Vietnamese',en:'English',zh:'Chinese',ja:'Japanese',es:'Spanish',fr:'French'};
-  const nA=LN[langA]||langA||'the first language', nB=LN[langB]||langB;
-  let judged=0;
-  for(let i=0;i<both.length;i+=30){
-    const part=both.slice(i,i+30);
-    $('#progMsg').textContent='언어 구간 판정 중… ('+Math.min(i+30,both.length)+'/'+both.length+')';
-    try{
-      const j=await chat([{role:'system',content:`You are checking Whisper transcripts of a ${nA} lesson for ${nB} speakers. Each item has two transcripts of the SAME short utterance: A = Whisper forced to ${nA}, B = Whisper forced to ${nB}. Only one language was actually spoken in each utterance. When Whisper is forced to the wrong language it produces phonetic gibberish (the other language's sounds rendered as meaningless ${nA} syllables or meaningless ${nB} syllables). Some items also have E = Whisper's rough English translation of the same utterance (whatever language was spoken); the genuine transcript should MEAN roughly what E says, the gibberish will not. Procedure for each item: (1) Is A a real, meaningful ${nA} word or phrase, and does it match E? (2) Is B a real, meaningful ${nB} word or phrase, and does it match E? (3) Choose the one that is real; if both look real, prefer the one whose meaning matches E, then the lesson pattern (a ${nA} item is usually followed by its ${nB} meaning); if neither looks real, pick the less broken one. Return only JSON {"r":[{"i":<item i>,"c":"A"|"B"},...]} with one entry per item, no commentary.`},{role:'user',content:JSON.stringify(part.map(x=>x.E?{i:x.i,A:x.A,B:x.B,E:x.E}:{i:x.i,A:x.A,B:x.B}))}],signal,PROV[prov].judge,0);
-      const arr=Array.isArray(j.r)?j.r:(Array.isArray(j.choices)?j.choices.map((c,k)=>({i:part[k]&&part[k].i,c})):[]);
-      for(const x of arr){ const v=String(x.c||'').toUpperCase(); if((v==='A'||v==='B')&&choice[x.i]!==undefined&&both.some(it=>it.i===x.i)){ choice[x.i]=v; judged++; } }
-    }catch(e){ if(e.name==='AbortError') throw e; console.warn('judge',e); STEP.mark('언어 판정 실패: '+(e.message||e)); }
-  }
-  STEP.mark('언어 판정 '+judged+'/'+both.length+' (발화 '+cl.length+')');
-  // 발화 → 줄: 같은 언어가 이어지고 간격이 짧으면 한 줄로 합친다 (최대 12단어)
-  const segs=[];
-  for(let i=0;i<cl.length;i++){ const c=cl[i]; const pick=c.A.length&&c.B.length?choice[i]:(c.A.length?'A':'B'); const ws=pick==='A'?c.A:c.B; if(!ws.length) continue;
-    const last=segs[segs.length-1];
-    if(last&&last.pick===pick&&c.s-last.e<0.5&&last.words.length+ws.length<=12){ last.words.push(...ws); last.e=Math.max(last.e,c.e); }
-    else segs.push({s:c.s,e:c.e,pick,words:[...ws]}); }
-  const out=segs.map(x=>({s:x.s,e:x.e,text:text(x.words),words:x.words.map(({src,...w})=>w)}));
-  return {language:(langA||'?')+'+'+langB,segments:out,text:out.map(x=>x.text).join(' '),judged,judgeTotal:both.length};
-}
+const LANGCODE=n=>{ n=String(n||'').toLowerCase(); const M={vietnamese:'vi',korean:'ko',english:'en',japanese:'ja',chinese:'zh',spanish:'es',french:'fr'}; return M[n]||(n.length===2?n:''); };
 async function whisperPass(t,lang,signal){
   if(t.size>24*1048576){
     if(!(await isMp3(t.blob))) throw new Error('파일이 25MB를 넘습니다. 무료 Whisper API는 25MB 이하만 받습니다. MP3로 변환하면 앱이 자동으로 나눠서 보냅니다.');
@@ -431,13 +405,13 @@ async function whisperPass(t,lang,signal){
   const j=await whisperRaw(t.blob,t.type,lang,signal);
   return buildTranscript(j);
 }
-async function whisperRaw(blob,type,lang,signal,translate){
+async function whisperRaw(blob,type,lang,signal,translate,opts){ opts=opts||{};
   const fd=new FormData();
   const ext=((type||'audio/mpeg').split('/')[1]||'mp3').replace('mpeg','mp3').replace('x-m4a','m4a');
   fd.append('file',blob,'audio.'+ext);
-  fd.append('model',PROV[prov].stt);
+  fd.append('model',opts.model||PROV[prov].stt);
   fd.append('response_format','verbose_json');
-  if(!translate){ fd.append('timestamp_granularities[]','word'); fd.append('timestamp_granularities[]','segment'); if(lang) fd.append('language',lang); const hint=$('#hint').value.trim(); if(hint) fd.append('prompt',hint.slice(0,800)); }
+  if(!translate){ fd.append('timestamp_granularities[]','word'); fd.append('timestamp_granularities[]','segment'); if(lang) fd.append('language',lang); const hint=opts.noPrompt?'':$('#hint').value.trim(); if(hint) fd.append('prompt',hint.slice(0,800)); }
   for(let attempt=0;;attempt++){
     const r=await fetch(PROV[prov].base+(translate?'/audio/translations':'/audio/transcriptions'),{method:'POST',headers:{Authorization:'Bearer '+key},body:fd,signal});
     if(r.ok) return await r.json();
@@ -489,18 +463,6 @@ async function chat(messages,signal,models,temperature){
     }
   }
   throw lastErr||new Error('채팅 모델 호출 실패');
-}
-async function translateAll(t,tl,signal){
-  const lines=t.transcript.segments.map(s=>s.text);
-  const out=new Array(lines.length).fill('');
-  const CH=60;
-  for(let i=0;i<lines.length;i+=CH){
-    const part=lines.slice(i,i+CH);
-    const j=await chat([{role:'system',content:`Translate each line of these song/lesson lyrics into ${TLN[tl]||tl} for a language learner. Keep line count identical and order the same. If a line is already written in ${TLN[tl]||tl}, output an empty string for it. Return JSON {"lines":[...]} with exactly ${part.length} strings.`},{role:'user',content:JSON.stringify(part)}],signal);
-    const arr=Array.isArray(j.lines)?j.lines:[];
-    for(let k=0;k<part.length;k++) out[i+k]=String(arr[k]||'');
-  }
-  return out;
 }
 async function wordMeaning(word,ctx,tl){
   const j=await chat([{role:'system',content:`You help a language learner. Explain the given word as used in the sentence. Answer in ${TLN[tl]||tl}. Return JSON {"meaning":"short meaning (1 line)","note":"pronunciation or usage tip, 1 line, may be empty"}.`},{role:'user',content:JSON.stringify({word,sentence:ctx})}]);
@@ -642,9 +604,6 @@ async function analyze(t){
     STEP.mark('인식 완료 '+tr.segments.length+'문장'); LS.set('analyzing','');
     if(!tr.segments.length) throw new Error('인식된 음성이 없습니다.');
     t.transcript=tr; t.translations={}; t.meanings={}; await DB.put(t);
-    const tl=$('#tlang').value;
-    if(key){ $('#progMsg').textContent='번역 중…';
-      try{ t.translations[tl]=await translateAll(t,tl,sig); await DB.put(t); }catch(e){ if(e.name==='AbortError') throw e; console.warn('translate',e); } }
     $('#dProg').close();
     if(cur&&cur.id===t.id) buildLyrics(); await loadLib();
   }catch(e){
@@ -678,7 +637,7 @@ const MS={
 };
 // 잠금화면에 현재 문장(+번역)을 제목처럼 표시
 function updateLockText(){ if(!cur) return; let title=cur.name, artist='Lingo Player';
-  if(cur.transcript&&curL>=0){ const seg=cur.transcript.segments[curL]; const tr=(cur.translations[$('#tlang').value]||[])[curL]; title=seg.text; artist=tr||cur.name; }
+  if(cur.transcript&&curL>=0){ const seg=cur.transcript.segments[curL]; title=seg.text; artist=cur.name; }
   MS.meta(title,artist,cur.name); }
 
 /* ---------- player ---------- */
@@ -700,20 +659,12 @@ function buildLyrics(){
   if(!cur.transcript){ L.innerHTML='<div class="empty">아직 단어 싱크가 없습니다.<br>오른쪽 위 <b>분석</b> 버튼을 누르면 Whisper로 단어 타이밍을 뽑습니다.</div>'; $('#btnAnalyze').textContent='분석'; return; }
   $('#btnAnalyze').textContent='재분석';
   const lang2=$('#lang2').value; if(engine!=='local'&&lang2&&!/\+/.test(cur.transcript.language||'')){ const h=document.createElement('div'); h.className='msg err'; h.textContent='이 분석은 두 번째 언어('+(LANGN[lang2]||lang2)+') 설정 전에 만든 것입니다. 오른쪽 위 "재분석"을 눌러 주세요.'; L.appendChild(h); }
-  else if(cur.transcript.judgeTotal&&!cur.transcript.judged){ const h=document.createElement('div'); h.className='msg err'; h.textContent='언어 판정(LLM)이 실패해 기본 규칙으로만 합쳤습니다. 잠시 후 "재분석"하면 나아질 수 있습니다.'; L.appendChild(h); }
-  const tl=$('#tlang').value; const trs=cur.translations[tl]||null;
   cur.transcript.segments.forEach((s,li)=>{
     const p=document.createElement('p'); p.className='line'; p.dataset.i=li;
     s.words.forEach(w=>{ const sp=document.createElement('span'); sp.className='w'; sp.textContent=w.w; const idx=flat.length; flat.push({...w,li}); wordEls.push(sp); sp.onclick=e=>{ e.stopPropagation(); showWord(idx); }; p.appendChild(sp); p.appendChild(document.createTextNode(' ')); });
-    if(trs&&trs[li]){ const tr=document.createElement('span'); tr.className='tr'; tr.textContent=trs[li]; p.appendChild(tr); }
     p.onclick=()=>{ seek(s.s); if(audio.paused) audio.play(); };
     L.appendChild(p); lineEls.push(p);
   });
-  if(!trs) ensureTranslation();
-}
-async function ensureTranslation(){
-  const tl=$('#tlang').value; const t=cur; if(!t||!t.transcript||t.translations[tl]||!key) return;
-  try{ const tr=await translateAll(t,tl); t.translations[tl]=tr; await DB.put(t); if(cur&&cur.id===t.id) { lineEls.forEach((p,li)=>{ if(tr[li]&&!p.querySelector('.tr')){ const s=document.createElement('span'); s.className='tr'; s.textContent=tr[li]; p.appendChild(s);} }); } }catch(e){ console.warn('translate',e); }
 }
 function seek(s){ audio.currentTime=Math.max(0,s+0.01); tick(true); }
 function findWord(t){ let lo=0,hi=flat.length-1,ans=-1; while(lo<=hi){ const m=(lo+hi)>>1; if(flat[m].s<=t){ ans=m; lo=m+1; } else hi=m-1; } return ans; }
@@ -768,9 +719,7 @@ $('#prevL').onclick=()=>{ if(!cur||!cur.transcript) return seek(audio.currentTim
 $('#nextL').onclick=()=>{ if(!cur||!cur.transcript) return seek(audio.currentTime+5); const segs=cur.transcript.segments; const li=Math.min(segs.length-1,curL+1); seek(segs[li].s); };
 $('#loop').onclick=()=>{ loopOn=!loopOn; $('#loop').classList.toggle('on',loopOn); };
 $('#rate').onclick=()=>{ const i=(RATES.indexOf(audio.playbackRate)+1)%RATES.length; audio.playbackRate=RATES[i]; LS.set('rate',RATES[i]); $('#rate').textContent=RATES[i]+'x'; };
-$('#trToggle').onclick=()=>{ const off=document.body.classList.toggle('notr'); $('#trToggle').classList.toggle('on',!off); LS.set('notr',off?'1':'0'); };
 $('#fsBtn').onclick=()=>{ const sizes=[16,20,24,28]; const c=+LS.get('fs','20'); const n=sizes[(sizes.indexOf(c)+1)%sizes.length]; LS.set('fs',n); document.documentElement.style.setProperty('--fs',n+'px'); };
-$('#tlang').addEventListener('change',()=>{ if(cur&&cur.transcript) buildLyrics(); });
 
 /* ---------- word popup ---------- */
 let wpIdx=-1;
@@ -790,7 +739,7 @@ $('#wpHere').onclick=()=>{ $('#wpop').close(); if(wpIdx>=0){ seek(flat[wpIdx].s)
 /* ---------- misc ---------- */
 document.addEventListener('keydown',e=>{ if($('#player').classList.contains('hidden')||e.target.tagName==='INPUT') return; if(e.code==='Space'){ e.preventDefault(); $('#play').click(); } if(e.key==='ArrowLeft') $('#prevL').click(); if(e.key==='ArrowRight') $('#nextL').click(); });
 if('serviceWorker' in navigator && location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{});
-window.__lingo={buildTranscript,DB,openPlayer,decodeTo16k,decodeBuf16k,mp3Frames,toPlayableWav,mergeBilingual,setChunk:n=>{MP3_CHUNK=n},get cur(){return cur},get flat(){return flat}}; // 테스트용
+window.__lingo={buildTranscript,DB,openPlayer,decodeTo16k,decodeBuf16k,mp3Frames,toPlayableWav,vadSegments,setChunk:n=>{MP3_CHUNK=n},get cur(){return cur},get flat(){return flat}}; // 테스트용
 loadLib();
 })();
 </script>
