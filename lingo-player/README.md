@@ -26,6 +26,9 @@ Factory Talk와는 별개의 앱이며, 이 폴더 하나로 완결됩니다.
 설정(⚙)에서 제공자(Groq/OpenAI)를 고르고 그 서비스의 API 키를 입력합니다. 키는 기기(localStorage)에만 저장됩니다.
 - 내장 키: GitHub 저장소 Settings → Secrets and variables → Actions 에 `GROQ_API_KEY`를 등록하면 빌드 시 APK에 내장되어 입력 없이 바로 씁니다. 설정에서 키를 입력하면 그 키가 우선합니다.
 - 주의: 이 저장소는 공개이므로 릴리스 APK도 누구나 받을 수 있고, APK 안의 내장 키는 추출될 수 있습니다. 키를 소스 코드에 직접 쓰지 마세요.
+
+## 서명 키 (업데이트 시 데이터 유지)
+CI가 매번 새 디버그 키로 서명하면 새 APK를 기존 앱 위에 설치할 수 없어 삭제 후 재설치해야 하고, 저장된 곡·분석·설정(API 키 포함)이 사라집니다. GitHub Secret `SIGNING_KEYSTORE_B64`(PKCS12 키스토어의 base64, 비밀번호·키 비밀번호 `lingo-player`, 별칭 `lingo`)를 등록하면 항상 같은 키로 서명한 release APK를 만들어 업데이트가 제자리 설치되고 데이터가 유지됩니다. 키스토어 파일은 저장소에 넣지 않습니다(공개 저장소).
 - Groq: console.groq.com 가입 → API Keys. 카드 없이 무료 (하루 약 28,800초 오디오, 분당 20요청, 25MB 제한). 분석·번역·단어 뜻 모두 Groq 키 하나로 동작.
 - OpenAI: 선결제 필요. Whisper 분당 약 $0.006, 번역·단어 뜻은 gpt-4o-mini.
 

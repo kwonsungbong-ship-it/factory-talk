@@ -48,10 +48,34 @@ jobs:
             done
           done
           rm -rf android/app/src/main/res/mipmap-anydpi-v26
-      - name: Build debug APK
-        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
-      - name: Rename
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk LingoPlayer.apk
+      - name: Signing key from secret (stable identity so updates install over the old version and keep app data)
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$SIGNING_KEYSTORE_B64" ]; then echo "signing: secret SIGNING_KEYSTORE_B64 not set, using a throwaway debug key (updates will require uninstall)"; echo "debug" > .buildtype; exit 0; fi
+          echo "$SIGNING_KEYSTORE_B64" | base64 -d > android/app/lingo.keystore
+          cat >> android/app/build.gradle <<'EOF'
+
+          android {
+              signingConfigs {
+                  lingo {
+                      storeFile file("lingo.keystore")
+                      storePassword "lingo-player"
+                      keyAlias "lingo"
+                      keyPassword "lingo-player"
+                      storeType "PKCS12"
+                  }
+              }
+              buildTypes {
+                  release { signingConfig signingConfigs.lingo }
+              }
+          }
+          EOF
+          echo "release" > .buildtype; echo "signing: stable key"
+      - name: Build APK
+        run: |
+          cd android && chmod +x gradlew
+          if [ "$(cat ../.buildtype)" = "release" ]; then ./gradlew assembleRelease --no-daemon && cp app/build/outputs/apk/release/app-release.apk ../LingoPlayer.apk; else ./gradlew assembleDebug --no-daemon && cp app/build/outputs/apk/debug/app-debug.apk ../LingoPlayer.apk; fi
       - uses: actions/upload-artifact@v4
         with: { name: LingoPlayer-apk, path: lingo-player/LingoPlayer.apk }
       - name: Publish release
