@@ -11,3 +11,5 @@
 | 영→한, 영→중, 중→한·한→중(한자어) | 위 사전에서 자동 생성한 보조 사전 |
 
 빌드: `.github/workflows/offline-dict.yml` 이 사전 데이터를 내려받아 `tools/build_db.py` 로 SQLite DB를 만든 뒤 APK를 빌드하고 `dict-v1.0.N` 릴리스로 올립니다.
+
+데이터 출처의 라이선스는 각 원본을 따릅니다.
