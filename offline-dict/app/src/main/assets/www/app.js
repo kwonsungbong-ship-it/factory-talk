@@ -17,6 +17,13 @@ function esc(s) {
 function braces(s) {
   return esc(s).replace(/\{([^{}]*)\}/g, function (m, x) { return x.trim() ? '<span class="en">' + x + '</span> ' : ''; });
 }
+/* Long comma lists (OVDP pivot entries dump every Vietnamese sense of the English word): show the first few, tap to expand. */
+function meaning(s) {
+  var parts = String(s).split(/,\s+/);
+  if (parts.length <= 10) return braces(s);
+  return braces(parts.slice(0, 8).join(', ')) + '<span class="mi"> … +' + (parts.length - 8) + ' 더보기</span>' +
+    '<span class="rest hidden">, ' + braces(parts.slice(8).join(', ')) + '</span>';
+}
 function plain(s) { return String(s || '').replace(/\{([^{}]*)\}\s*/g, function (m, x) { return x.trim() ? x.trim() + ' · ' : ''; }).replace(/[{}]/g, '').replace(/\s+/g, ' ').trim(); }
 
 /* ---------------- renderers ---------------- */
@@ -37,7 +44,7 @@ function renderOvdp(body, hw) {
     } else if (c === '*') {
       out.push('<div class="pos">' + braces(rest) + '</div>');
     } else if (c === '-') {
-      if (rest && rest !== '▷') out.push('<div class="m">' + braces(rest) + '</div>');
+      if (rest && rest !== '▷') out.push('<div class="m">' + meaning(rest) + '</div>');
     } else if (c === '=') {
       var p = rest.indexOf('+');
       if (p >= 0) {
@@ -47,7 +54,7 @@ function renderOvdp(body, hw) {
     } else if (c === '!') {
       out.push('<div class="idiom">' + braces(rest) + '</div>');
     } else {
-      out.push('<div class="m">' + braces(ln.trim()) + '</div>');
+      out.push('<div class="m">' + meaning(ln.trim()) + '</div>');
     }
   }
   return out.join('');
@@ -237,6 +244,9 @@ function renderDetail(g) {
     var d = DMAP[r.d] || { name: '?', fmt: 'ovdp' };
     return '<div class="sec"><span class="badge">' + esc(d.name) + '</span>' + renderBody(d.fmt, r.b, r.h) + '</div>';
   }).join('');
+  $('dBody').querySelectorAll('.mi').forEach(function (m) {
+    m.addEventListener('click', function () { m.nextSibling.classList.remove('hidden'); m.remove(); });
+  });
   $('dBody').querySelectorAll('a.w').forEach(function (a) {
     a.addEventListener('click', function () { openWord(a.getAttribute('data-w')); });
   });

@@ -78,3 +78,4 @@ ol.defs { margin: 2px 0 6px; padding-left: 1.5em; }
 .seg button { flex: 1; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 8px; padding: 8px 0; font-size: .9em; }
 .seg button.on { background: var(--main); color: #fff; border-color: var(--main); }
 .about { font-size: .88em; color: var(--text); }
+.mi { color: var(--accent); font-weight: 600; white-space: nowrap; }
