@@ -79,3 +79,8 @@ ol.defs { margin: 2px 0 6px; padding-left: 1.5em; }
 .seg button.on { background: var(--main); color: #fff; border-color: var(--main); }
 .about { font-size: .88em; color: var(--text); }
 .mi { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.vi { color: var(--text); }
+.oth { font-size: .9em; margin-top: 2px; }
+.lg { display: inline-block; font-size: .7em; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.kod { color: var(--muted); font-size: .88em; margin-top: 2px; }
+ol.defs li { margin-bottom: 8px; }

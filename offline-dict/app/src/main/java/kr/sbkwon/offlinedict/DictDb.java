@@ -61,7 +61,7 @@ public class DictDb {
 
     public synchronized String dicts() throws Exception {
         JSONArray arr = new JSONArray();
-        Cursor c = db.rawQuery("SELECT id,code,src,dst,name,fmt,cnt FROM dicts ORDER BY id", null);
+        Cursor c = db.rawQuery("SELECT id,code,src,dst,name,fmt,cnt,ord FROM dicts ORDER BY ord", null);
         try {
             while (c.moveToNext()) {
                 JSONObject o = new JSONObject();
@@ -72,6 +72,7 @@ public class DictDb {
                 o.put("name", c.getString(4));
                 o.put("fmt", c.getString(5));
                 o.put("cnt", c.getInt(6));
+                o.put("ord", c.getDouble(7));
                 arr.put(o);
             }
         } finally {
@@ -110,6 +111,9 @@ public class DictDb {
         String[] b = block(blk);
         return idx < b.length ? b[idx] : "";
     }
+
+    /** 한국어기초사전 (12) first, otherwise by dictionary id */
+    private static int prio(int d) { return d == 12 ? 0 : d; }
 
     private static class Row {
         String k, hw;
@@ -165,7 +169,7 @@ public class DictDb {
             else if (g.k.equals(k)) rank = 1;
             else rank = 2;
             Collections.sort(g.rows, new Comparator<Row>() {
-                public int compare(Row a, Row b) { return a.d - b.d; }
+                public int compare(Row a, Row b) { return prio(a.d) - prio(b.d); }
             });
             int distinct = 0, last = -1;
             for (Row r : g.rows) if (r.d != last) { distinct++; last = r.d; }

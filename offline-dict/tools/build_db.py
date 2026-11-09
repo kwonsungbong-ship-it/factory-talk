@@ -30,7 +30,11 @@ DICTS = [
     (9, 'en-zh', 'en', 'zh', '영→중', 'list'),
     (10, 'zh-ko', 'zh', 'ko', '중→한 한자어', 'list'),
     (11, 'ko-zh', 'ko', 'zh', '한→중 한자어', 'list'),
+    (12, 'ko-krdict', 'ko', 'vi', '한국어기초사전', 'krdict'),
+    (13, 'vi-ko2', 'vi', 'ko', '베→한 기초사전', 'list'),
 ]
+# display order in an entry page (smaller first); default = id
+ORDER = {'ko-krdict': 0, 'vi-ko2': 2.5}
 OVDP_FILES = {
     'en-vi': 'en-vi/star_anhviet', 'vi-en': 'vi-en/star_vietanh',
     'ko-vi': 'ko-vi/star_hanviet', 'vi-ko': 'vi-ko/star_viethan',
@@ -120,7 +124,7 @@ class Builder:
         c.execute('PRAGMA journal_mode=OFF')
         c.execute('PRAGMA synchronous=OFF')
         c.execute('PRAGMA page_size=4096')
-        c.execute('CREATE TABLE dicts(id INTEGER PRIMARY KEY, code TEXT, src TEXT, dst TEXT, name TEXT, fmt TEXT, cnt INTEGER)')
+        c.execute('CREATE TABLE dicts(id INTEGER PRIMARY KEY, code TEXT, src TEXT, dst TEXT, name TEXT, fmt TEXT, cnt INTEGER, ord REAL)')
         # k: normalized headword (search key); hw NULL when identical to k
         c.execute('CREATE TABLE entries(k TEXT, id INTEGER, d INTEGER, hw TEXT, b INTEGER, i INTEGER, PRIMARY KEY(k, id)) WITHOUT ROWID')
         c.execute('CREATE TABLE blocks(id INTEGER PRIMARY KEY, data BLOB)')
@@ -173,7 +177,7 @@ class Builder:
         self.close_block()
         self.flush()
         for d in DICTS:
-            self.db.execute('INSERT INTO dicts VALUES(?,?,?,?,?,?,?)', d + (self.counts.get(d[1], 0),))
+            self.db.execute('INSERT INTO dicts VALUES(?,?,?,?,?,?,?,?)', d + (self.counts.get(d[1], 0), ORDER.get(d[1], d[0])))
         for k, v in meta.items():
             self.db.execute('INSERT INTO meta VALUES(?,?)', (k, str(v)))
         self.db.commit()
@@ -181,11 +185,86 @@ class Builder:
         self.db.close()
 
 
+LANGS = {'베트남어': 'vi', '영어': 'en', '일본어': 'ja', '인도네시아어': 'id'}
+
+
+def parse_krdict(b, folder, en_ko):
+    import glob
+    import xml.etree.ElementTree as ET
+
+    def feats(el):
+        return {f.get('att'): f.get('val') for f in el.findall('feat')}
+
+    words = OrderedDict()   # (word) -> [entry dicts]
+    vi_ko = defaultdict(OrderedDict)
+    files = sorted(glob.glob(os.path.join(folder, '*.xml')), key=lambda x: int(re.sub(r'\D', '', os.path.basename(x)) or 0))
+    for fn in files:
+        with open(fn, encoding='utf-8') as f:
+            text = f.read()
+        # the official export has a few unescaped '<' '>' inside attribute values
+        text = re.sub(r'val="([^"]*)"', lambda m: 'val="' + m.group(1).replace('<', '&lt;').replace('>', '&gt;') + '"', text)
+        import io
+        for ev, el in ET.iterparse(io.BytesIO(text.encode('utf-8')), events=('end',)):
+            if el.tag != 'LexicalEntry':
+                continue
+            top = feats(el)
+            lem = el.find('Lemma')
+            w = feats(lem).get('writtenForm') if lem is not None else None
+            if not w:
+                el.clear()
+                continue
+            pron = ''
+            wf = el.find('WordForm')
+            if wf is not None:
+                pron = feats(wf).get('pronunciation') or ''
+            senses = []
+            for se in el.findall('Sense'):
+                sf = feats(se)
+                sense = {'d': sf.get('definition') or ''}
+                for eq in se.findall('Equivalent'):
+                    ef = feats(eq)
+                    code = LANGS.get(ef.get('language'))
+                    if not code or not ef.get('lemma'):
+                        continue
+                    sense[code] = ef.get('lemma').strip()
+                    if code in ('vi', 'en') and ef.get('definition'):
+                        sense[code + 'd'] = ef.get('definition').strip()
+                exs = []
+                for ex in se.findall('SenseExample'):
+                    vals = [f.get('val') for f in ex.findall('feat') if f.get('att') == 'example' and f.get('val')]
+                    if vals and len(exs) < 2:
+                        exs.append(' / '.join(vals))
+                if exs:
+                    sense['e'] = exs
+                senses.append(sense)
+            el.clear()
+            if not senses:
+                continue
+            entry = {'p': top.get('partOfSpeech') or '', 'o': top.get('origin') or '', 'r': pron, 's': senses}
+            words.setdefault(w, []).append(entry)
+            short = senses[0]['d'][:60]
+            for sn in senses:
+                for vi in re.split(r'[,;]', sn.get('vi', '')):
+                    vi = re.sub(r'\([^)]*\)', '', vi).strip().lower()
+                    if vi and len(vi.split()) <= 5 and w not in vi_ko[vi]:
+                        vi_ko[vi][w] = (sn['d'][:60] or short)
+                for p in short_pieces(sn.get('en', '')):
+                    k = en_ko[p]['k']
+                    if w not in k and len(k) < 15:
+                        k[w] = sn['d'][:60]
+    for w, ents in words.items():
+        b.add('ko-krdict', w, ents)
+    for vi, kos in vi_ko.items():
+        b.add('vi-ko2', vi, {'k': [{'w': k, 'n': n} for k, n in list(kos.items())[:12]]})
+    print('krdict', len(words), 'vi-ko2', len(vi_ko))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--ovdp', required=True)
     ap.add_argument('--cedict', required=True)
     ap.add_argument('--kedict', required=True)
+    ap.add_argument('--krdict', help='folder with 한국어기초사전 LMF XML files (changwoo/krdict-converted/upstream)')
     ap.add_argument('--out', required=True)
     ap.add_argument('--version', default='dev')
     a = ap.parse_args()
@@ -308,6 +387,10 @@ def main():
         if e['s']:
             b.add('ko-en', w, e)
     print('kedict', len(kedict))
+
+    # ---- 한국어기초사전 (NIKL, CC BY-SA 2.0 KR) ----
+    if a.krdict:
+        parse_krdict(b, a.krdict, en_ko)
 
     # ---- en-ko (derived) ----
     for en in sorted(en_ko):

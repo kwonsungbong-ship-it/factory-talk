@@ -23,6 +23,7 @@ jobs:
           mkdir -p ../_src
           git clone --depth 1 https://github.com/dynamotn/stardict-vi.git ../_src/ovdp
           git clone --depth 1 https://github.com/mhagiwara/cc-kedict.git ../_src/kedict
+          git clone --depth 1 https://github.com/changwoo/krdict-converted.git ../_src/krdict
           if curl -fsSL --retry 3 -o ../_src/cedict.txt.gz https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz; then
             gunzip -f ../_src/cedict.txt.gz
             echo "CC-CEDICT: mdbg.net"
@@ -35,7 +36,7 @@ jobs:
       - name: Build dictionary database
         run: |
           pip install pyyaml
-          python3 tools/build_db.py --ovdp ../_src/ovdp --cedict ../_src/cedict.txt --kedict ../_src/kedict/kedict.yml \
+          python3 tools/build_db.py --ovdp ../_src/ovdp --cedict ../_src/cedict.txt --kedict ../_src/kedict/kedict.yml --krdict ../_src/krdict/upstream \
             --out app/src/main/assets/dict.db --version "$(date -u +%Y-%m-%d)"
           stat -c %s app/src/main/assets/dict.db > app/src/main/assets/dict.size
           ls -la app/src/main/assets

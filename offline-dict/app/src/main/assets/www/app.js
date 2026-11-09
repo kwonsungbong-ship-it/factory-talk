@@ -103,12 +103,35 @@ function renderList(o) {
   return h;
 }
 
+var LNAME = { en: '영', ja: '일', id: '인니' };
+function renderKrdict(list) {
+  var h = '';
+  list.forEach(function (e) {
+    h += '<div class="pos">' + esc(e.p) + (e.o ? ' <span class="hint">' + esc(e.o) + '</span>' : '') +
+      (e.r ? ' <span class="pron" style="display:inline">[' + esc(e.r) + ']</span>' : '') + '</div><ol class="defs">';
+    e.s.forEach(function (s) {
+      h += '<li>' + (s.vi ? '<b class="vi">' + esc(s.vi) + '</b>' : '') +
+        (s.vid ? '<div class="note">' + esc(s.vid) + '</div>' : '');
+      var other = ['en', 'ja', 'id'].filter(function (l) { return s[l]; }).map(function (l) {
+        return '<span class="lg">' + LNAME[l] + '</span> ' + esc(s[l]);
+      });
+      if (other.length) h += '<div class="oth">' + other.join(' · ') + '</div>';
+      if (s.d) h += '<div class="kod">' + esc(s.d) + '</div>';
+      (s.e || []).forEach(function (x) { h += '<div class="ex"><span class="s">' + esc(x) + '</span></div>'; });
+      h += '</li>';
+    });
+    h += '</ol>';
+  });
+  return h;
+}
+
 function renderBody(fmt, body, hw) {
   try {
     if (fmt === 'ovdp') return renderOvdp(body, hw);
     var o = JSON.parse(body);
     if (fmt === 'cedict') return renderCedict(o);
     if (fmt === 'kedict') return renderKedict(o);
+    if (fmt === 'krdict') return renderKrdict(o);
     return renderList(o);
   } catch (e) { return '<div class="m">' + esc(body) + '</div>'; }
 }
@@ -127,6 +150,11 @@ function preview(fmt, body) {
     }
     var o = JSON.parse(body);
     if (fmt === 'cedict') return o.r.map(function (r) { return r[0] + ' ' + r[1].slice(0, 2).join('; '); }).join(' | ');
+    if (fmt === 'krdict') {
+      var v = [];
+      o.forEach(function (e) { e.s.forEach(function (s) { if (v.length < 3) v.push(s.vi || s.en || s.d); }); });
+      return v.join('; ');
+    }
     if (fmt === 'kedict') return o.s.map(function (s) { return s.d.slice(0, 2).join('; '); }).join(' | ');
     var parts = (o.k || []).slice(0, 5).map(function (it) { return it.w; });
     if (!parts.length && o.x) parts = o.x.slice(0, 2);
@@ -240,6 +268,7 @@ function renderDetail(g) {
   var rows = JSON.parse(API.detail(g.k, g.h, enabledCsv()));
   $('dHw').textContent = rows.length ? rows[0].h : g.h;
   if (!rows.length) { $('dBody').innerHTML = '<p class="empty">선택한 사전에 이 단어가 없습니다.</p>'; return; }
+  rows.sort(function (a, b) { return ((DMAP[a.d] || {}).ord || a.d) - ((DMAP[b.d] || {}).ord || b.d); });
   $('dBody').innerHTML = rows.map(function (r) {
     var d = DMAP[r.d] || { name: '?', fmt: 'ovdp' };
     return '<div class="sec"><span class="badge">' + esc(d.name) + '</span>' + renderBody(d.fmt, r.b, r.h) + '</div>';
