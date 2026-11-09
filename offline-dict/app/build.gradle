@@ -1,0 +1,48 @@
+plugins {
+    id 'com.android.application'
+}
+
+def verCode = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+
+android {
+    namespace 'kr.sbkwon.offlinedict'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'kr.sbkwon.offlinedict'
+        minSdk 21
+        targetSdk 34
+        versionCode verCode
+        versionName "1.0.${verCode}"
+    }
+
+    signingConfigs {
+        stable {
+            def ks = file('dict.keystore')
+            if (ks.exists()) {
+                storeFile ks
+                storePassword 'lingo-player'
+                keyAlias 'lingo'
+                keyPassword 'lingo-player'
+                storeType 'PKCS12'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig file('dict.keystore').exists() ? signingConfigs.stable : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}

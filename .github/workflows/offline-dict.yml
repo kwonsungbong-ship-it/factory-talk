@@ -1,0 +1,61 @@
+name: Build Offline Dictionary APK
+on:
+  push:
+    branches: [main]
+    paths: ['offline-dict/**', '.github/workflows/offline-dict.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+defaults:
+  run:
+    working-directory: offline-dict
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Download dictionary sources
+        run: |
+          mkdir -p ../_src
+          git clone --depth 1 https://github.com/dynamotn/stardict-vi.git ../_src/ovdp
+          git clone --depth 1 https://github.com/mhagiwara/cc-kedict.git ../_src/kedict
+          if curl -fsSL --retry 3 -o ../_src/cedict.txt.gz https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz; then
+            gunzip -f ../_src/cedict.txt.gz
+            echo "CC-CEDICT: mdbg.net"
+          else
+            echo "mdbg.net unavailable, using the cc-cedict npm package"
+            (cd ../_src && npm pack cc-cedict && tar xzf cc-cedict-*.tgz)
+            node tools/cedict_from_npm.js ../_src/package/data/all.js ../_src/cedict.txt
+          fi
+          wc -l ../_src/cedict.txt
+      - name: Build dictionary database
+        run: |
+          pip install pyyaml
+          python3 tools/build_db.py --ovdp ../_src/ovdp --cedict ../_src/cedict.txt --kedict ../_src/kedict/kedict.yml \
+            --out app/src/main/assets/dict.db --version "$(date -u +%Y-%m-%d)"
+          stat -c %s app/src/main/assets/dict.db > app/src/main/assets/dict.size
+          ls -la app/src/main/assets
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.7' }
+      - name: Signing key from secret (stable identity so updates install over the old version)
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/dict.keystore; echo "signing: stable key"; else echo "signing: debug key (updates will require uninstall)"; fi
+      - name: Build APK
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk OfflineDict.apk
+          ls -la OfflineDict.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: OfflineDict-apk, path: offline-dict/OfflineDict.apk }
+      - name: Publish release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          TAG="dict-v1.0.${{ github.run_number }}"
+          gh release create "$TAG" OfflineDict.apk --title "오프라인 사전 $TAG" --latest=false \
+            --notes "영어·베트남어·한국어·중국어 오프라인 사전 안드로이드 APK — 인터넷·광고·서버 확인 없음. 다운로드 후 설치 (출처를 알 수 없는 앱 허용 필요). 첫 실행 때 사전 데이터를 한 번 풀어 놓는 데 몇 초 걸립니다."

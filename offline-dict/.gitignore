@@ -1,0 +1,8 @@
+app/src/main/assets/dict.db
+app/src/main/assets/dict.size
+app/dict.keystore
+build/
+app/build/
+.gradle/
+local.properties
+!app/src/main/assets/www/
