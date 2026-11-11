@@ -72,6 +72,59 @@ public class SettingsActivity extends Activity {
         LockService.sync(c);
     }
 
+
+    // ---------------------------------------------------------------- default home
+
+    public static final int REQ_HOME = 4201;
+
+    /** Asks the system to make Home Up the default launcher, with fallbacks for OEM skins. */
+    public static void requestDefaultHome(Activity a) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                android.app.role.RoleManager rm = a.getSystemService(android.app.role.RoleManager.class);
+                if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)
+                        && !rm.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)) {
+                    a.startActivityForResult(rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME), REQ_HOME);
+                    return;
+                }
+            } catch (RuntimeException ignored) {}
+        }
+        openHomeSettings(a);
+    }
+
+    /** Tries the default-apps screens that different phone makers actually ship. */
+    public static void openHomeSettings(Activity a) {
+        String[] actions = {Settings.ACTION_HOME_SETTINGS, Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS};
+        for (String act : actions) {
+            Intent i = new Intent(act);
+            if (i.resolveActivity(a.getPackageManager()) != null) {
+                try {
+                    a.startActivity(i);
+                    Actions.toast(a, "목록에서 '꾸미기 홈'을 골라 주세요 (기본 앱 > 홈 앱)");
+                    return;
+                } catch (RuntimeException ignored) {}
+            }
+        }
+        // last resort: show the system "which home?" chooser
+        try {
+            a.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            Actions.toast(a, "'꾸미기 홈'을 고르고 '항상'을 눌러 주세요");
+        } catch (RuntimeException e) {
+            a.startActivity(new Intent(Settings.ACTION_SETTINGS));
+            Actions.toast(a, "설정 > 앱 > 기본 앱 > 홈 앱에서 '꾸미기 홈'을 골라 주세요");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_HOME) return;
+        Boolean on = moduleOn(this, M_HOME);
+        if (on != null && on) Actions.toast(this, "기본 홈 앱으로 설정했어요");
+        else openHomeSettings(this);
+    }
+
     // ---------------------------------------------------------------- screens
 
     @Override
@@ -219,8 +272,7 @@ public class SettingsActivity extends Activity {
         ui.section(null);
         Boolean def = moduleOn(this, M_HOME);
         ui.navRow(def != null && def ? "✅ 기본 홈 앱으로 사용 중" : "기본 홈 앱으로 설정", "홈 버튼을 누르면 이 화면이 나와요", v -> {
-            try { startActivity(new Intent(Settings.ACTION_HOME_SETTINGS)); }
-            catch (RuntimeException e) { startActivity(new Intent(this, HomeActivity.class)); }
+            requestDefaultHome(this);
         });
         ui.navRow("홈 화면 미리 보기", null, v -> startActivity(new Intent(this, HomeActivity.class)));
         ui.section("앱");

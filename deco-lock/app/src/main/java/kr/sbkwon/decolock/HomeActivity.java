@@ -307,13 +307,14 @@ public class HomeActivity extends Activity {
     }
 
     private void homeMenu() {
-        String[] items = {"홈 화면 앱 고르기", "독 앱 고르기", "배경화면 만들기", "시스템 배경화면 변경", "폰 꾸미기 설정"};
+        String[] items = {"홈 화면 앱 고르기", "독 앱 고르기", "배경화면 만들기", "시스템 배경화면 변경", "폰 꾸미기 설정", "기본 홈 앱으로 설정"};
         new AlertDialog.Builder(this).setItems(items, (d, w) -> {
             if (w == 0) pick(Prefs.HOME_APPS, "홈 화면 앱 선택", cols * 6);
             else if (w == 1) pick(Prefs.DOCK_APPS, "독 앱 선택", 5);
             else if (w == 2) openIntent(new Intent(this, WallpaperMakerActivity.class));
             else if (w == 3) openIntent(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER), "배경화면"));
-            else openIntent(new Intent(this, SettingsActivity.class).putExtra(SettingsActivity.EXTRA_MODULE, SettingsActivity.M_HOME));
+            else if (w == 4) openIntent(new Intent(this, SettingsActivity.class).putExtra(SettingsActivity.EXTRA_MODULE, SettingsActivity.M_HOME));
+            else SettingsActivity.requestDefaultHome(this);
         }).show();
     }
 
