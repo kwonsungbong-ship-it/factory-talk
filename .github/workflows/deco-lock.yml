@@ -1,0 +1,38 @@
+name: Build Deco Lock APK
+on:
+  push:
+    branches: [main]
+    paths: ['deco-lock/**', '.github/workflows/deco-lock.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+defaults:
+  run:
+    working-directory: deco-lock
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.7' }
+      - name: Signing key from secret (stable identity so updates install over the old version)
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then echo "$SIGNING_KEYSTORE_B64" | base64 -d > app/deco.keystore; echo "signing: stable key"; else echo "signing: debug key (updates will require uninstall)"; fi
+      - name: Build APK
+        run: |
+          gradle assembleRelease --no-daemon --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk DecoLock.apk
+          ls -la DecoLock.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: DecoLock-apk, path: deco-lock/DecoLock.apk }
+      - name: Publish release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          TAG="deco-v1.0.${{ github.run_number }}"
+          gh release create "$TAG" DecoLock.apk --title "폰 꾸미기 $TAG" --latest=false \
+            --notes "Good Lock 스타일 폰 꾸미기 안드로이드 APK (안드로이드 8 이상, 삼성 아닌 폰 포함). 엣지 라이팅 · 엣지 제스처/패널 · 내비게이션 바 · 홈 화면(런처) · 잠금 화면/시계 · 움직이는 배경화면 · 알림 기록 · 사운드 · 빠른 설정 타일 · 테마/위젯. 설치 후 앱 첫 화면의 권한 3개(접근성, 알림 접근, 다른 앱 위에 표시)를 켜 주세요. 안드로이드 13 이상에서 접근성이 막혀 있으면 앱 정보 > ⋮ > '제한된 설정 허용'."

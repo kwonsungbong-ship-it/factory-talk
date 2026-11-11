@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">폰 꾸미기</string>
+    <string name="home_name">꾸미기 홈</string>
+    <string name="widget_desc">테마색 시계·날짜 위젯</string>
+    <string name="a11y_desc">엣지 제스처(뒤로·홈·최근 앱), 엣지 패널, 떠 있는 내비게이션 바, 화면 꺼짐 방지, 볼륨 키를 미디어 볼륨으로 쓰기 기능에 사용됩니다. 화면 내용은 읽거나 저장하지 않습니다.</string>
+    <string name="lw_desc">폰을 기울이면 움직이는 배경화면</string>
+    <string name="lw_name">Wonderland 배경화면</string>
+</resources>
